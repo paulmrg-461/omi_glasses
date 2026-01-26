@@ -1,0 +1,9 @@
+import '../entities/bluetooth_device_entity.dart';
+
+abstract class BluetoothRepository {
+  Stream<List<BluetoothDeviceEntity>> get scanResults;
+  Future<void> startScan();
+  Future<void> stopScan();
+  Future<void> connect(String deviceId);
+  Future<void> disconnect(String deviceId);
+}
