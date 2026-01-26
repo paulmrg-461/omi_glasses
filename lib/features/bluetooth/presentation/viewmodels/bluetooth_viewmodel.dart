@@ -13,11 +13,23 @@ class BluetoothViewModel extends ChangeNotifier {
   bool _isScanning = false;
   bool get isScanning => _isScanning;
 
+  bool _isConnecting = false;
+  bool get isConnecting => _isConnecting;
+
+  String? _errorMessage;
+  String? get errorMessage => _errorMessage;
+
+  BluetoothDeviceEntity? _connectedDevice;
+  BluetoothDeviceEntity? get connectedDevice => _connectedDevice;
+
   StreamSubscription? _scanSubscription;
 
   BluetoothViewModel({required this.repository});
 
   Future<void> startScan() async {
+    _errorMessage = null;
+    notifyListeners();
+
     // Request permissions
     await [
       Permission.bluetoothScan,
@@ -46,16 +58,61 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> connect(String deviceId) async {
+    _isConnecting = true;
+    _errorMessage = null;
+    notifyListeners();
+
     try {
       if (_isScanning) {
         await stopScan();
         // Wait for scan to fully stop to avoid HCI errors
-        await Future.delayed(const Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 2000));
       }
-      await repository.connect(deviceId);
+
+      // Add a timeout to the connection attempt (e.g., 30 seconds)
+      await repository
+          .connect(deviceId)
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () {
+              throw TimeoutException(
+                "Connection timed out. Device not found or not advertising.",
+              );
+            },
+          );
+
+      // If we get here, we are connected
+      _connectedDevice = _devices.firstWhere(
+        (d) => d.id == deviceId,
+        orElse: () => BluetoothDeviceEntity(
+          id: deviceId,
+          name: 'Unknown',
+          rssi: 0,
+          serviceUuids: [],
+        ),
+      );
+      _errorMessage = null;
     } catch (e) {
       debugPrint("Error connecting to device: $e");
-      rethrow;
+      _errorMessage = e.toString();
+
+      // Ensure we clean up any pending connection attempts
+      try {
+        await repository.disconnect(deviceId);
+      } catch (_) {}
+
+      // Notify UI of error state but don't crash
+      if (e.toString().contains("255") ||
+          e.toString().contains("UNKNOWN_HCI_ERROR")) {
+        _errorMessage =
+            "Android HCI 255 Error. Please restart Bluetooth on your phone.";
+        debugPrint(
+          "Known Android HCI 255 Error encountered. Please toggle Bluetooth.",
+        );
+      }
+    } finally {
+      _isConnecting = false;
+      notifyListeners();
     }
   }
 
