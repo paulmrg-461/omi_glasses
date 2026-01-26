@@ -22,14 +22,68 @@ class BluetoothScanPage extends StatelessWidget {
                     "Connected to ${viewModel.connectedDevice!.name}",
                     style: Theme.of(context).textTheme.headlineSmall,
                   ),
+                  const SizedBox(height: 16),
+                  const Text("Connection Verified via Service Discovery:"),
+                  const SizedBox(height: 8),
+                  if (viewModel.connectedDeviceServices.isNotEmpty)
+                    Container(
+                      height: 150,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: viewModel.connectedDeviceServices.length,
+                        itemBuilder: (context, index) {
+                          return Text(
+                            "Service: ${viewModel.connectedDeviceServices[index]}",
+                            style: const TextStyle(fontSize: 12),
+                          );
+                        },
+                      ),
+                    )
+                  else
+                    Column(
+                      children: [
+                        const Text("No services found (or discovery pending)"),
+                        TextButton.icon(
+                          onPressed: () => viewModel.retryServiceDiscovery(),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text("Retry Discovery"),
+                        ),
+                      ],
+                    ),
+
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    color: Colors.amber.shade100,
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.amber),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Note: Camera streaming requires Wi-Fi. BLE is ready for commands.",
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                   const SizedBox(height: 32),
                   ElevatedButton(
                     onPressed: () {
-                      // TODO: Navigate to main feature page or disconnect
-                      // For now just disconnect to go back to scan
-                       // We need a disconnect method in VM
-                    }, 
-                    child: const Text("Continue"),
+                      viewModel.disconnect();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade100,
+                      foregroundColor: Colors.red.shade900,
+                    ),
+                    child: const Text("Disconnect"),
                   ),
                 ],
               ),
@@ -38,7 +92,7 @@ class BluetoothScanPage extends StatelessWidget {
 
           final sortedDevices = List.of(viewModel.devices)
             ..sort((a, b) => b.rssi.compareTo(a.rssi));
-            
+
           return Stack(
             children: [
               Column(
@@ -74,8 +128,8 @@ class BluetoothScanPage extends StatelessWidget {
                           title: Text(device.name),
                           subtitle: Text(device.id),
                           trailing: ElevatedButton(
-                            onPressed: viewModel.isConnecting 
-                                ? null 
+                            onPressed: viewModel.isConnecting
+                                ? null
                                 : () => viewModel.connect(device.id),
                             child: const Text("Connect"),
                           ),

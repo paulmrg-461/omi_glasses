@@ -22,6 +22,9 @@ class BluetoothViewModel extends ChangeNotifier {
   BluetoothDeviceEntity? _connectedDevice;
   BluetoothDeviceEntity? get connectedDevice => _connectedDevice;
 
+  List<String> _connectedDeviceServices = [];
+  List<String> get connectedDeviceServices => _connectedDeviceServices;
+
   StreamSubscription? _scanSubscription;
 
   BluetoothViewModel({required this.repository});
@@ -91,6 +94,15 @@ class BluetoothViewModel extends ChangeNotifier {
           serviceUuids: [],
         ),
       );
+
+      // Discover services to verify connection and capability
+      try {
+        _connectedDeviceServices = await repository.discoverServices(deviceId);
+      } catch (e) {
+        debugPrint("Error discovering services: $e");
+        _connectedDeviceServices = ["Error discovering services: $e"];
+      }
+
       _errorMessage = null;
     } catch (e) {
       debugPrint("Error connecting to device: $e");
@@ -112,6 +124,25 @@ class BluetoothViewModel extends ChangeNotifier {
       }
     } finally {
       _isConnecting = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> disconnect() async {
+    if (_connectedDevice != null) {
+      final deviceId = _connectedDevice!.id;
+      _connectedDevice = null;
+      _connectedDeviceServices = [];
+      notifyListeners();
+      await repository.disconnect(deviceId);
+    }
+  }
+
+  Future<void> retryServiceDiscovery() async {
+    if (_connectedDevice != null) {
+      _connectedDeviceServices = await repository.discoverServices(
+        _connectedDevice!.id,
+      );
       notifyListeners();
     }
   }

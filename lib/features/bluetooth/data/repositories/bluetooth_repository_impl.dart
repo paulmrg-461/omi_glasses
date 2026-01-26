@@ -52,4 +52,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
     final device = BluetoothDevice.fromId(deviceId);
     return dataSource.disconnect(device);
   }
+
+  @override
+  Future<List<String>> discoverServices(String deviceId) async {
+    final device = BluetoothDevice.fromId(deviceId);
+    return dataSource.discoverServices(device);
+  }
 }

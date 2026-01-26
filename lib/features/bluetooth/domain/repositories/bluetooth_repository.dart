@@ -6,4 +6,5 @@ abstract class BluetoothRepository {
   Future<void> stopScan();
   Future<void> connect(String deviceId);
   Future<void> disconnect(String deviceId);
+  Future<List<String>> discoverServices(String deviceId);
 }

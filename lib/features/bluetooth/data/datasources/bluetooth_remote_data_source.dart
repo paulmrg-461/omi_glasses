@@ -7,6 +7,7 @@ abstract class BluetoothRemoteDataSource {
   Future<void> stopScan();
   Future<void> connect(BluetoothDevice device);
   Future<void> disconnect(BluetoothDevice device);
+  Future<List<String>> discoverServices(BluetoothDevice device);
 }
 
 class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
@@ -41,13 +42,45 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
       autoConnect: true,
       mtu: null, // REQUIRED for autoConnect: true
     );
-    
-    // Once connected, we can try to request a higher MTU if needed, 
+
+    // Once connected, we can try to request a higher MTU if needed,
     // but usually we just want the connection first.
   }
 
   @override
   Future<void> disconnect(BluetoothDevice device) {
     return device.disconnect();
+  }
+
+  @override
+  Future<List<String>> discoverServices(BluetoothDevice device) async {
+    // Wait a bit after connection before discovering services
+    // This is often needed on Android to allow the GATT stack to settle
+    await Future.delayed(const Duration(milliseconds: 2000));
+
+    try {
+      debugPrint("Discovering services for ${device.remoteId}...");
+      List<BluetoothService> services = await device.discoverServices();
+      
+      if (services.isEmpty) {
+        debugPrint("No services found. Retrying discovery in 2 seconds...");
+        await Future.delayed(const Duration(seconds: 2));
+        services = await device.discoverServices();
+      }
+
+      debugPrint("Found ${services.length} services.");
+      return services.map((s) => s.uuid.toString()).toList();
+    } catch (e) {
+      debugPrint("Error discovering services: $e");
+      // Try one more time after a longer delay
+       await Future.delayed(const Duration(seconds: 3));
+       try {
+         final services = await device.discoverServices();
+         return services.map((s) => s.uuid.toString()).toList();
+       } catch (e2) {
+         debugPrint("Retry failed: $e2");
+         return [];
+       }
+    }
   }
 }

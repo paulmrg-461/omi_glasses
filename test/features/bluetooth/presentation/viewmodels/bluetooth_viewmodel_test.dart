@@ -42,16 +42,20 @@ void main() {
     verify(() => mockRepository.startScan()).called(1);
   });
 
-  test('connect calls repository.connect', () async {
+  test('connect calls repository.connect and discoverServices', () async {
     const deviceId = 'test_device_id';
     when(() => mockRepository.connect(deviceId)).thenAnswer((_) async {});
     when(() => mockRepository.stopScan()).thenAnswer((_) async {});
+    when(
+      () => mockRepository.discoverServices(deviceId),
+    ).thenAnswer((_) async => ['00001800-0000-1000-8000-00805f9b34fb']);
 
     // Simulate scanning state if we want to test stopScan
     // But initially isScanning is false, so it should just call connect
     await viewModel.connect(deviceId);
 
     verify(() => mockRepository.connect(deviceId)).called(1);
+    verify(() => mockRepository.discoverServices(deviceId)).called(1);
     verifyNever(() => mockRepository.stopScan());
   });
 }
