@@ -4,7 +4,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 abstract class BluetoothRemoteDataSource {
   Stream<List<ScanResult>> get scanResults;
-  Future<void> startScan({Duration? timeout});
+  Future<void> startScan({Duration? timeout, List<String>? withServices});
   Future<void> stopScan();
   Future<void> connect(BluetoothDevice device, {bool autoConnect = true});
   Future<void> disconnect(BluetoothDevice device);
@@ -36,8 +36,11 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
   Stream<List<ScanResult>> get scanResults => FlutterBluePlus.scanResults;
 
   @override
-  Future<void> startScan({Duration? timeout}) {
-    return FlutterBluePlus.startScan(timeout: timeout);
+  Future<void> startScan({Duration? timeout, List<String>? withServices}) {
+    return FlutterBluePlus.startScan(
+      timeout: timeout,
+      withServices: withServices?.map((s) => Guid(s)).toList() ?? [],
+    );
   }
 
   @override
@@ -69,8 +72,15 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
       rethrow;
     }
 
-    // Once connected, we can try to request a higher MTU if needed,
-    // but usually we just want the connection first.
+    // Once connected, we can try to request a higher MTU if needed
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      debugPrint("Requesting high MTU (512)...");
+      try {
+        await device.requestMtu(512);
+      } catch (e) {
+        debugPrint("Failed to request MTU: $e");
+      }
+    }
   }
 
   @override

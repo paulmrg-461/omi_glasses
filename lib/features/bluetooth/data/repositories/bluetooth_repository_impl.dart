@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../../domain/entities/bluetooth_device_entity.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
@@ -35,7 +36,12 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
   @override
   Future<void> startScan() async {
-    return dataSource.startScan(timeout: const Duration(seconds: 15));
+    // We scan for OMI devices specifically, but also allow general scanning if needed.
+    // For now, let's include the OMI Service UUID to prioritize finding the glasses.
+    return dataSource.startScan(
+      timeout: const Duration(seconds: 15),
+      withServices: [BluetoothConstants.serviceUuid],
+    );
   }
 
   @override
@@ -142,5 +148,63 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         "Wi-Fi status monitoring not supported on this device.",
       );
     }
+  }
+
+  @override
+  Stream<Uint8List> listenToImages(String deviceId) {
+    final device = BluetoothDevice.fromId(deviceId);
+    List<int> imageBuffer = [];
+
+    return dataSource
+        .subscribeToCharacteristic(
+          device,
+          BluetoothConstants.serviceUuid,
+          BluetoothConstants.photoDataUuid,
+        )
+        .expand((data) {
+          if (data.length < 2) return [];
+
+          // The first 2 bytes are the frame index (little endian)
+          int frameIndex = data[0] | (data[1] << 8);
+
+          if (frameIndex == 0xFFFF) {
+            // End of image marker: Emit full image
+            if (imageBuffer.isNotEmpty) {
+              final finalImage = Uint8List.fromList(imageBuffer);
+              imageBuffer.clear();
+              return [finalImage];
+            }
+          } else {
+            // Append data to buffer (skip header)
+            if (data.length > 2) {
+              imageBuffer.addAll(data.sublist(2));
+            }
+          }
+          return [];
+        });
+  }
+
+  @override
+  Future<void> triggerPhoto(String deviceId) async {
+    final device = BluetoothDevice.fromId(deviceId);
+    await dataSource.writeCharacteristicBytes(
+      device,
+      BluetoothConstants.serviceUuid,
+      BluetoothConstants.photoControlUuid,
+      [0xFF], // Command for single photo (as per guide)
+    );
+  }
+
+  @override
+  Future<void> startVideo(String deviceId) async {
+    final device = BluetoothDevice.fromId(deviceId);
+    // Command for continuous capture (e.g. 1 frame per second)
+    // Guide says 0x01 is for 1s interval? Let's use that.
+    await dataSource.writeCharacteristicBytes(
+      device,
+      BluetoothConstants.serviceUuid,
+      BluetoothConstants.photoControlUuid,
+      [0x01],
+    );
   }
 }

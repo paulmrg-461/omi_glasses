@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import '../entities/bluetooth_device_entity.dart';
 
 abstract class BluetoothRepository {
@@ -7,6 +8,15 @@ abstract class BluetoothRepository {
   Future<void> connect(String deviceId);
   Future<void> disconnect(String deviceId);
   Future<List<String>> discoverServices(String deviceId);
-  Future<void> sendWifiCredentials(String deviceId, String ssid, String password);
+  Future<void> sendWifiCredentials(
+    String deviceId,
+    String ssid,
+    String password,
+  );
   Stream<String> listenForIpAddress(String deviceId);
+
+  // New features based on OMI Guide
+  Stream<Uint8List> listenToImages(String deviceId);
+  Future<void> triggerPhoto(String deviceId);
+  Future<void> startVideo(String deviceId);
 }

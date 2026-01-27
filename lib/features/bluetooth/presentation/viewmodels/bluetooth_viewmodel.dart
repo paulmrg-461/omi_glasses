@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../domain/entities/bluetooth_device_entity.dart';
@@ -36,6 +37,10 @@ class BluetoothViewModel extends ChangeNotifier {
 
   StreamSubscription? _scanSubscription;
   StreamSubscription? _ipSubscription;
+
+  // Image Stream
+  Stream<Uint8List>? _imageStream;
+  Stream<Uint8List>? get imageStream => _imageStream;
 
   BluetoothViewModel({required this.repository});
 
@@ -155,6 +160,41 @@ class BluetoothViewModel extends ChangeNotifier {
       _connectedDeviceServices = await repository.discoverServices(
         _connectedDevice!.id,
       );
+      notifyListeners();
+    }
+  }
+
+  void startImageListener() {
+    if (_connectedDevice == null) return;
+    try {
+      _imageStream = repository.listenToImages(_connectedDevice!.id);
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = "Failed to start image listener: $e";
+      notifyListeners();
+    }
+  }
+
+  Future<void> triggerPhoto() async {
+    if (_connectedDevice == null) return;
+    try {
+      await repository.triggerPhoto(_connectedDevice!.id);
+      _statusMessage = "Photo triggered";
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = "Failed to trigger photo: $e";
+      notifyListeners();
+    }
+  }
+
+  Future<void> startVideo() async {
+    if (_connectedDevice == null) return;
+    try {
+      await repository.startVideo(_connectedDevice!.id);
+      _statusMessage = "Video started";
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = "Failed to start video: $e";
       notifyListeners();
     }
   }

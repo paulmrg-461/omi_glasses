@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../viewmodels/bluetooth_viewmodel.dart';
@@ -244,6 +245,54 @@ class BluetoothScanPage extends StatelessWidget {
                           icon: const Icon(Icons.wifi_tethering),
                           label: const Text("Setup Wi-Fi for Camera"),
                         ),
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        const Text("BLE Camera Controls (Beta)"),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: () => viewModel.triggerPhoto(),
+                              icon: const Icon(Icons.camera_alt),
+                              label: const Text("Take Photo"),
+                            ),
+                            const SizedBox(width: 16),
+                            ElevatedButton.icon(
+                              onPressed: () => viewModel.startVideo(),
+                              icon: const Icon(Icons.videocam),
+                              label: const Text("Start Video"),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        ElevatedButton(
+                          onPressed: () => viewModel.startImageListener(),
+                          child: const Text("Start Image Stream Listener"),
+                        ),
+                        const SizedBox(height: 16),
+                        if (viewModel.imageStream != null)
+                          Container(
+                            height: 200,
+                            width: 200,
+                            color: Colors.grey.shade200,
+                            child: StreamBuilder<Uint8List>(
+                              stream: viewModel.imageStream,
+                              builder: (context, snapshot) {
+                                if (snapshot.hasData &&
+                                    snapshot.data!.isNotEmpty) {
+                                  return Image.memory(
+                                    snapshot.data!,
+                                    gaplessPlayback: true,
+                                    fit: BoxFit.cover,
+                                  );
+                                }
+                                return const Center(
+                                  child: Text("Waiting for image..."),
+                                );
+                              },
+                            ),
+                          ),
                       ],
 
                       const SizedBox(height: 32),
