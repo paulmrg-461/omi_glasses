@@ -16,8 +16,14 @@ class BluetoothViewModel extends ChangeNotifier {
   bool _isConnecting = false;
   bool get isConnecting => _isConnecting;
 
+  bool _isSettingUpWifi = false;
+  bool get isSettingUpWifi => _isSettingUpWifi;
+
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
+
+  String? _statusMessage;
+  String? get statusMessage => _statusMessage;
 
   BluetoothDeviceEntity? _connectedDevice;
   BluetoothDeviceEntity? get connectedDevice => _connectedDevice;
@@ -25,12 +31,17 @@ class BluetoothViewModel extends ChangeNotifier {
   List<String> _connectedDeviceServices = [];
   List<String> get connectedDeviceServices => _connectedDeviceServices;
 
+  String? _cameraIp;
+  String? get cameraIp => _cameraIp;
+
   StreamSubscription? _scanSubscription;
+  StreamSubscription? _ipSubscription;
 
   BluetoothViewModel({required this.repository});
 
   Future<void> startScan() async {
     _errorMessage = null;
+    _statusMessage = null;
     notifyListeners();
 
     // Request permissions
@@ -63,6 +74,7 @@ class BluetoothViewModel extends ChangeNotifier {
   Future<void> connect(String deviceId) async {
     _isConnecting = true;
     _errorMessage = null;
+    _statusMessage = null;
     notifyListeners();
 
     try {
@@ -147,9 +159,79 @@ class BluetoothViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> setupWifi(String ssid, String password) async {
+    if (_connectedDevice == null) return;
+
+    _isSettingUpWifi = true;
+    _errorMessage = null;
+    _statusMessage = null;
+    notifyListeners();
+
+    try {
+      debugPrint("Starting Wi-Fi Setup for device: ${_connectedDevice!.id}");
+      debugPrint("SSID: $ssid");
+
+      // Cancel previous subscription if any
+      _ipSubscription?.cancel();
+
+      // Start listening for IP
+      debugPrint("Subscribing to IP characteristic...");
+      _ipSubscription = repository
+          .listenForIpAddress(_connectedDevice!.id)
+          .listen(
+            (statusOrIp) {
+              debugPrint("Received status/IP from glasses: $statusOrIp");
+
+              if (statusOrIp == "Success") {
+                // Wi-Fi connected, but no IP yet.
+                // We can notify the user that credentials were accepted.
+                _statusMessage = "Wi-Fi Credentials Accepted! connecting...";
+                _errorMessage = null;
+                // We don't set _cameraIp yet because "Success" is not an IP.
+              } else if (statusOrIp.contains(".")) {
+                // It looks like an IP address (basic check)
+                _cameraIp = statusOrIp;
+                _statusMessage = "Wi-Fi Connected! IP: $statusOrIp";
+                _errorMessage = null; // Clear any status messages
+              } else if (statusOrIp.startsWith("Error")) {
+                _errorMessage = "Wi-Fi Error: $statusOrIp";
+                _statusMessage = null;
+              }
+
+              _isSettingUpWifi = false;
+              notifyListeners();
+            },
+            onError: (e) {
+              debugPrint("Error receiving IP: $e");
+              // Don't stop loading here, as this is a stream error, maybe transient
+            },
+          );
+
+      // Send credentials
+      debugPrint("Sending credentials...");
+      await repository.sendWifiCredentials(
+        _connectedDevice!.id,
+        ssid,
+        password,
+      );
+      debugPrint("Credentials sent successfully.");
+
+      // Note: We keep _isSettingUpWifi = true until we get an IP or user cancels?
+      // Actually, let's set it to false after sending, but keep the SnackBar telling user to wait.
+      _isSettingUpWifi = false;
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Setup Wi-Fi Failed: $e");
+      _errorMessage = "Failed to send Wi-Fi credentials: $e";
+      _isSettingUpWifi = false;
+      notifyListeners();
+    }
+  }
+
   @override
   void dispose() {
     _scanSubscription?.cancel();
+    _ipSubscription?.cancel();
     super.dispose();
   }
 }

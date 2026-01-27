@@ -39,6 +39,7 @@ dependencies:
   provider: ^6.1.5+1
   get_it: ^9.2.0
   equatable: ^2.0.8
+  flutter_mjpeg: ^2.0.4
 
 dev_dependencies:
   flutter_test:

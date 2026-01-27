@@ -58,4 +58,67 @@ void main() {
     verify(() => mockRepository.discoverServices(deviceId)).called(1);
     verifyNever(() => mockRepository.stopScan());
   });
+
+  group('setupWifi', () {
+    const deviceId = 'test_device_id';
+    const ssid = 'ssid';
+    const password = 'pass';
+
+    setUp(() async {
+      // Establish a connection first
+      when(() => mockRepository.connect(deviceId)).thenAnswer((_) async {});
+      when(
+        () => mockRepository.discoverServices(deviceId),
+      ).thenAnswer((_) async => []);
+      await viewModel.connect(deviceId);
+    });
+
+    test('handles "Success" status correctly', () async {
+      when(
+        () => mockRepository.sendWifiCredentials(deviceId, ssid, password),
+      ).thenAnswer((_) async {});
+
+      when(
+        () => mockRepository.listenForIpAddress(deviceId),
+      ).thenAnswer((_) => Stream.value("Success"));
+
+      await viewModel.setupWifi(ssid, password);
+
+      expect(viewModel.statusMessage, contains("Accepted"));
+      expect(viewModel.errorMessage, isNull);
+      expect(viewModel.cameraIp, isNull);
+      expect(viewModel.isSettingUpWifi, false);
+    });
+
+    test('handles valid IP correctly', () async {
+      when(
+        () => mockRepository.sendWifiCredentials(deviceId, ssid, password),
+      ).thenAnswer((_) async {});
+
+      when(
+        () => mockRepository.listenForIpAddress(deviceId),
+      ).thenAnswer((_) => Stream.value("192.168.1.100"));
+
+      await viewModel.setupWifi(ssid, password);
+
+      expect(viewModel.cameraIp, "192.168.1.100");
+      expect(viewModel.statusMessage, contains("IP: 192.168.1.100"));
+      expect(viewModel.errorMessage, isNull);
+    });
+
+    test('handles Error string correctly', () async {
+      when(
+        () => mockRepository.sendWifiCredentials(deviceId, ssid, password),
+      ).thenAnswer((_) async {});
+
+      when(
+        () => mockRepository.listenForIpAddress(deviceId),
+      ).thenAnswer((_) => Stream.value("Error: 1"));
+
+      await viewModel.setupWifi(ssid, password);
+
+      expect(viewModel.errorMessage, contains("Wi-Fi Error: Error: 1"));
+      expect(viewModel.cameraIp, isNull);
+    });
+  });
 }
