@@ -84,6 +84,24 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   }
 
   @override
+  Stream<int> monitorBatteryLevel(String deviceId) {
+    final device = BluetoothDevice.fromId(deviceId);
+    return dataSource
+        .subscribeToCharacteristic(
+          device,
+          BluetoothConstants.batteryServiceUuid,
+          BluetoothConstants.batteryLevelUuid,
+        )
+        .map((data) {
+          if (data.isNotEmpty) {
+            // Battery level is a single byte (0-100)
+            return data[0];
+          }
+          return -1;
+        });
+  }
+
+  @override
   Stream<List<BluetoothDeviceEntity>> get scanResults {
     return dataSource.scanResults.map((results) {
       return results.map((result) {

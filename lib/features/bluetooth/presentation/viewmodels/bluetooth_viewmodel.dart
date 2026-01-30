@@ -41,11 +41,16 @@ class BluetoothViewModel extends ChangeNotifier {
   StreamSubscription? _ipSubscription;
   StreamSubscription? _imageSubscription;
   StreamSubscription? _audioSubscription;
+  StreamSubscription? _batterySubscription;
 
   // Audio State
   FlutterSoundPlayer? _audioPlayer;
   bool _isAudioEnabled = false;
   bool get isAudioEnabled => _isAudioEnabled;
+
+  // Battery State
+  int? _batteryLevel;
+  int? get batteryLevel => _batteryLevel;
 
   // Image State
   Uint8List? _lastImage;
@@ -130,6 +135,9 @@ class BluetoothViewModel extends ChangeNotifier {
       // Discover services to verify connection and capability
       try {
         _connectedDeviceServices = await repository.discoverServices(deviceId);
+
+        // Start monitoring battery automatically
+        startBatteryListener();
       } catch (e) {
         debugPrint("Error discovering services: $e");
         _connectedDeviceServices = ["Error discovering services: $e"];
@@ -391,6 +399,31 @@ class BluetoothViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> startBatteryListener() async {
+    if (_connectedDevice == null) return;
+
+    // Cancel previous if any
+    await _batterySubscription?.cancel();
+
+    debugPrint("Starting battery listener...");
+    try {
+      _batterySubscription = repository
+          .monitorBatteryLevel(_connectedDevice!.id)
+          .listen(
+            (level) {
+              debugPrint("Battery Level Received: $level%");
+              _batteryLevel = level;
+              notifyListeners();
+            },
+            onError: (e) {
+              debugPrint("Error reading battery: $e");
+            },
+          );
+    } catch (e) {
+      debugPrint("Failed to start battery listener: $e");
+    }
+  }
+
   Future<void> setupWifi(String ssid, String password) async {
     if (_connectedDevice == null) return;
 
@@ -466,6 +499,7 @@ class BluetoothViewModel extends ChangeNotifier {
     _ipSubscription?.cancel();
     _imageSubscription?.cancel();
     _audioSubscription?.cancel();
+    _batterySubscription?.cancel();
     _audioPlayer?.closePlayer();
     super.dispose();
   }

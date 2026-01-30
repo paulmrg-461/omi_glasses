@@ -89,6 +89,29 @@ class BluetoothScanPage extends StatelessWidget {
                         "Connected to ${viewModel.connectedDevice!.name}",
                         style: Theme.of(context).textTheme.headlineSmall,
                       ),
+                      const SizedBox(height: 8),
+                      if (viewModel.batteryLevel != null)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              viewModel.batteryLevel! > 20
+                                  ? Icons.battery_full
+                                  : Icons.battery_alert,
+                              color: viewModel.batteryLevel! > 20
+                                  ? Colors.green
+                                  : Colors.red,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              "${viewModel.batteryLevel}%",
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
                       const SizedBox(height: 16),
 
                       // Status Message Display (Inline)

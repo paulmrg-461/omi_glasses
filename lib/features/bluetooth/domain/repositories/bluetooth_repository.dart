@@ -23,6 +23,9 @@ abstract class BluetoothRepository {
   // Audio features
   Stream<Uint8List> startAudioStream(String deviceId);
   Future<void> stopAudioStream(String deviceId);
+
+  // Battery features
+  Stream<int> monitorBatteryLevel(String deviceId);
 }
 
 abstract class ImageReceptionState {}
