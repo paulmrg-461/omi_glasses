@@ -64,7 +64,7 @@ class BluetoothScanPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Connect to OMI Glasses')),
+      appBar: AppBar(title: const Text('OMI Glasses')),
       body: Consumer<BluetoothViewModel>(
         builder: (context, viewModel, child) {
           // Show error dialog if error exists and not shown?
@@ -79,131 +79,39 @@ class BluetoothScanPage extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(
-                        Icons.check_circle,
-                        color: Colors.green,
-                        size: 64,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        "Connected to ${viewModel.connectedDevice!.name}",
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const SizedBox(height: 8),
-                      if (viewModel.batteryLevel != null)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              viewModel.batteryLevel! > 20
-                                  ? Icons.battery_full
-                                  : Icons.battery_alert,
-                              color: viewModel.batteryLevel! > 20
-                                  ? Colors.green
-                                  : Colors.red,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              "${viewModel.batteryLevel}%",
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      const SizedBox(height: 16),
-
-                      // Status Message Display (Inline)
-                      if (viewModel.statusMessage != null)
-                        Container(
-                          margin: const EdgeInsets.all(16),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.blue),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          const Icon(
+                            Icons.check_circle,
+                            color: Colors.green,
+                            // size: 64,
                           ),
-                          child: Column(
-                            children: [
-                              const Icon(Icons.info, color: Colors.blue),
-                              const SizedBox(height: 8),
-                              Text(
-                                viewModel.statusMessage!,
-                                style: TextStyle(
-                                  color: Colors.blue.shade900,
-                                  fontWeight: FontWeight.bold,
+                          Text(
+                            "Connected to ${viewModel.connectedDevice!.name}",
+                            // style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          if (viewModel.batteryLevel != null)
+                            Row(
+                              children: [
+                                Icon(
+                                  viewModel.batteryLevel! > 20
+                                      ? Icons.battery_full
+                                      : Icons.battery_alert,
+                                  color: viewModel.batteryLevel! > 20
+                                      ? Colors.green
+                                      : Colors.red,
                                 ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      // Error Message Display (Inline)
-                      if (viewModel.errorMessage != null)
-                        Container(
-                          margin: const EdgeInsets.all(16),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.red),
-                          ),
-                          child: Column(
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                color: Colors.red,
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                viewModel.errorMessage!,
-                                style: TextStyle(
-                                  color: Colors.red.shade900,
-                                  fontWeight: FontWeight.bold,
+                                Text(
+                                  "${viewModel.batteryLevel}%",
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      const Text("Connection Verified via Service Discovery:"),
-                      const SizedBox(height: 8),
-                      if (viewModel.connectedDeviceServices.isNotEmpty)
-                        Container(
-                          height: 150,
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: viewModel.connectedDeviceServices.length,
-                            itemBuilder: (context, index) {
-                              return Text(
-                                "Service: ${viewModel.connectedDeviceServices[index]}",
-                                style: const TextStyle(fontSize: 12),
-                              );
-                            },
-                          ),
-                        )
-                      else
-                        Column(
-                          children: [
-                            const Text(
-                              "No services found (or discovery pending)",
+                              ],
                             ),
-                            TextButton.icon(
-                              onPressed: () =>
-                                  viewModel.retryServiceDiscovery(),
-                              icon: const Icon(Icons.refresh),
-                              label: const Text("Retry Discovery"),
-                            ),
-                          ],
-                        ),
+                        ],
+                      ),
 
                       const SizedBox(height: 16),
                       if (viewModel.cameraIp != null) ...[
@@ -431,6 +339,96 @@ class BluetoothScanPage extends StatelessWidget {
                         ),
                         child: const Text("Disconnect"),
                       ),
+                      const Divider(),
+                      // Status Message Display (Inline)
+                      if (viewModel.statusMessage != null)
+                        Container(
+                          margin: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.blue),
+                          ),
+                          child: Column(
+                            children: [
+                              const Icon(Icons.info, color: Colors.blue),
+                              const SizedBox(height: 8),
+                              Text(
+                                viewModel.statusMessage!,
+                                style: TextStyle(
+                                  color: Colors.blue.shade900,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      // Error Message Display (Inline)
+                      if (viewModel.errorMessage != null)
+                        Container(
+                          margin: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.red.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red),
+                          ),
+                          child: Column(
+                            children: [
+                              const Icon(
+                                Icons.error_outline,
+                                color: Colors.red,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                viewModel.errorMessage!,
+                                style: TextStyle(
+                                  color: Colors.red.shade900,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+
+                      const Text("Connection Verified via Service Discovery:"),
+                      if (viewModel.connectedDeviceServices.isNotEmpty)
+                        Container(
+                          margin: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: viewModel.connectedDeviceServices.length,
+                            itemBuilder: (context, index) {
+                              return Text(
+                                "Service: ${viewModel.connectedDeviceServices[index]}",
+                                style: const TextStyle(fontSize: 12),
+                              );
+                            },
+                          ),
+                        )
+                      else
+                        Column(
+                          children: [
+                            const Text(
+                              "No services found (or discovery pending)",
+                            ),
+                            TextButton.icon(
+                              onPressed: () =>
+                                  viewModel.retryServiceDiscovery(),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text("Retry Discovery"),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
