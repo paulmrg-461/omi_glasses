@@ -1,4 +1,3 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../viewmodels/bluetooth_viewmodel.dart';
@@ -76,7 +75,7 @@ class BluetoothScanPage extends StatelessWidget {
             children: [
               // Main Content
               if (viewModel.connectedDevice != null) ...[
-                Center(
+                SingleChildScrollView(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -265,34 +264,137 @@ class BluetoothScanPage extends StatelessWidget {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        ElevatedButton(
-                          onPressed: () => viewModel.startImageListener(),
-                          child: const Text("Start Image Stream Listener"),
-                        ),
                         const SizedBox(height: 16),
-                        if (viewModel.imageStream != null)
-                          Container(
-                            height: 200,
-                            width: 200,
-                            color: Colors.grey.shade200,
-                            child: StreamBuilder<Uint8List>(
-                              stream: viewModel.imageStream,
-                              builder: (context, snapshot) {
-                                if (snapshot.hasData &&
-                                    snapshot.data!.isNotEmpty) {
-                                  return Image.memory(
-                                    snapshot.data!,
-                                    gaplessPlayback: true,
-                                    fit: BoxFit.cover,
-                                  );
-                                }
-                                return const Center(
-                                  child: Text("Waiting for image..."),
-                                );
-                              },
+                        const Divider(),
+                        const Text("Audio Controls"),
+                        const SizedBox(height: 8),
+                        ElevatedButton.icon(
+                          onPressed: () => viewModel.toggleAudio(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: viewModel.isAudioEnabled
+                                ? Colors.red
+                                : Colors.green,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: Icon(
+                            viewModel.isAudioEnabled ? Icons.stop : Icons.mic,
+                          ),
+                          label: Text(
+                            viewModel.isAudioEnabled
+                                ? "Stop Audio Stream"
+                                : "Start Audio Stream",
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // Status Indicator for Image Transfer
+                        if (viewModel.imageTransferStatus != null)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8.0),
+                            child: Text(
+                              viewModel.imageTransferStatus!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.blue,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
                             ),
                           ),
+                        TextButton(
+                          onPressed: () => viewModel.startImageListener(),
+                          child: const Text("Restart Image Listener"),
+                        ),
+                        const SizedBox(height: 16),
+                        // Image Display
+                        Container(
+                          height: 200,
+                          width: double.infinity,
+                          margin: const EdgeInsets.symmetric(horizontal: 32),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            border: Border.all(color: Colors.grey),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: viewModel.lastImage != null
+                              ? Image.memory(
+                                  viewModel.lastImage!,
+                                  gaplessPlayback: true,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    // Ignore error and show raw data info if needed, or placeholder
+                                    return Center(
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          const Icon(
+                                            Icons
+                                                .image_not_supported, // Less alarming icon
+                                            color: Colors.orange,
+                                          ),
+                                          const SizedBox(height: 8),
+                                          const Text(
+                                            "Partial Image Data",
+                                            style: TextStyle(
+                                              color: Colors.orange,
+                                            ),
+                                          ),
+                                          Text(
+                                            "${viewModel.lastImage?.length ?? 0} bytes",
+                                            style: const TextStyle(
+                                              fontSize: 10,
+                                            ),
+                                          ),
+                                          if (viewModel.imageHeaderHex !=
+                                              null) ...[
+                                            Padding(
+                                              padding: const EdgeInsets.all(
+                                                8.0,
+                                              ),
+                                              child: SelectableText(
+                                                "Header: ${viewModel.imageHeaderHex}",
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                  fontFamily: 'monospace',
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ),
+                                            if (viewModel.lastImage != null &&
+                                                viewModel.lastImage!.length >
+                                                    10)
+                                              Padding(
+                                                padding: const EdgeInsets.all(
+                                                  8.0,
+                                                ),
+                                                child: SelectableText(
+                                                  "Tail: ${viewModel.lastImage!.sublist(viewModel.lastImage!.length - 10).map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}",
+                                                  style: const TextStyle(
+                                                    fontSize: 10,
+                                                    fontFamily: 'monospace',
+                                                  ),
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                              ),
+                                          ],
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                )
+                              : const Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.image_not_supported,
+                                        color: Colors.grey,
+                                      ),
+                                      Text("No Image Data"),
+                                    ],
+                                  ),
+                                ),
+                        ),
                       ],
 
                       const SizedBox(height: 32),

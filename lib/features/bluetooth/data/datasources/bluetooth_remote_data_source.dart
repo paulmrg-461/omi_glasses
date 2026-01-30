@@ -67,19 +67,32 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
         autoConnect: autoConnect,
         mtu: null, // REQUIRED for autoConnect: true
       );
+
+      // Request MTU with a safe delay and error handling
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        // Run in background, don't await blocking the connection return
+        Future.delayed(const Duration(seconds: 2), () async {
+          if (device.isConnected) {
+            debugPrint("Requesting high MTU (512) after delay...");
+            try {
+              // Also request high priority for faster throughput
+              await device.requestConnectionPriority(
+                connectionPriorityRequest: ConnectionPriority.high,
+              );
+              await Future.delayed(const Duration(milliseconds: 500));
+
+              await device.requestMtu(512);
+              int currentMtu = await device.mtu.first;
+              debugPrint("Current MTU: $currentMtu");
+            } catch (e) {
+              debugPrint("Failed to request MTU: $e");
+            }
+          }
+        });
+      }
     } catch (e) {
       // If it fails, let the caller handle it or retry
       rethrow;
-    }
-
-    // Once connected, we can try to request a higher MTU if needed
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      debugPrint("Requesting high MTU (512)...");
-      try {
-        await device.requestMtu(512);
-      } catch (e) {
-        debugPrint("Failed to request MTU: $e");
-      }
     }
   }
 
@@ -147,18 +160,15 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
       return;
     }
 
+    // NEW: Check if already connecting by checking connectionState stream briefly?
+    // Or assume if we are here, we really need to connect.
+
     // Wait if another reconnection attempt is in progress
     if (_isReconnecting) {
       debugPrint("Reconnection already in progress. Waiting...");
-      int attempts = 0;
-      while (_isReconnecting && attempts < 50) {
-        // Wait up to 5 seconds
-        await Future.delayed(const Duration(milliseconds: 100));
-        attempts++;
-      }
-      if (device.isConnected) return;
-      // If still not connected after wait, we might try again or fail
-      // For now, let's proceed to try connecting if lock is released
+      // Simply return to avoid stacking requests. The ongoing attempt will handle it.
+      // If it fails, the user will have to retry manually, which is safer than infinite loops.
+      return;
     }
 
     _isReconnecting = true;
@@ -167,33 +177,16 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
       if (device.isConnected) return;
 
       debugPrint(
-        "Device ${device.remoteId} disconnected. Attempting to reconnect (aggressive)...",
+        "Device ${device.remoteId} disconnected. Attempting to reconnect...",
       );
 
-      // Explicitly disconnect first to clear any stale state
-      // try {
-      //   await device.disconnect();
-      // } catch (e) {
-      //   // ignore
-      // }
-      // await Future.delayed(const Duration(milliseconds: 200));
-
-      // Use autoConnect: false for aggressive reconnection during active tasks
+      // Use autoConnect: true generally for better reliability, unless explicitly needed otherwise.
+      // We removed the aggressive "autoConnect: false" first attempt to avoid race conditions.
       try {
-        await connect(device, autoConnect: false);
+        await connect(device, autoConnect: true);
       } catch (e) {
-        debugPrint("Aggressive connection failed: $e");
-        // Check for 133 or 255 error and retry with autoConnect: true
-        if (e.toString().contains("255") || e.toString().contains("133")) {
-          debugPrint(
-            "Encountered HCI Error, falling back to autoConnect: true...",
-          );
-          // Wait a bit before retrying
-          await Future.delayed(const Duration(milliseconds: 500));
-          await connect(device, autoConnect: true);
-        } else {
-          rethrow;
-        }
+        debugPrint("Connection failed: $e");
+        rethrow;
       }
 
       // Wait for actual connection state
@@ -370,7 +363,12 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
     );
 
     debugPrint("Subscribing to characteristic $charUuid...");
+
+    // Ensure we start listening BEFORE enabling notifications to miss nothing
+    final stream = characteristic.onValueReceived;
+
     await characteristic.setNotifyValue(true);
-    yield* characteristic.onValueReceived;
+
+    yield* stream;
   }
 }

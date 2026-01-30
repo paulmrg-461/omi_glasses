@@ -40,6 +40,9 @@ dependencies:
   get_it: ^9.2.0
   equatable: ^2.0.8
   flutter_mjpeg: ^2.0.4
+  flutter_opus: ^1.0.4
+  flutter_sound: ^9.0.0
+  audio_session: ^0.1.21
 
 dev_dependencies:
   flutter_test:

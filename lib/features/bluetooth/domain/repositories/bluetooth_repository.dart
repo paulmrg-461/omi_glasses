@@ -16,7 +16,29 @@ abstract class BluetoothRepository {
   Stream<String> listenForIpAddress(String deviceId);
 
   // New features based on OMI Guide
-  Stream<Uint8List> listenToImages(String deviceId);
+  Stream<ImageReceptionState> listenToImages(String deviceId);
   Future<void> triggerPhoto(String deviceId);
   Future<void> startVideo(String deviceId);
+
+  // Audio features
+  Stream<Uint8List> startAudioStream(String deviceId);
+  Future<void> stopAudioStream(String deviceId);
+}
+
+abstract class ImageReceptionState {}
+
+class ImageReceptionProgress extends ImageReceptionState {
+  final int bytesReceived;
+  final int packetsReceived;
+  ImageReceptionProgress(this.bytesReceived, this.packetsReceived);
+}
+
+class ImageReceptionSuccess extends ImageReceptionState {
+  final Uint8List imageBytes;
+  ImageReceptionSuccess(this.imageBytes);
+}
+
+class ImageReceptionError extends ImageReceptionState {
+  final String error;
+  ImageReceptionError(this.error);
 }

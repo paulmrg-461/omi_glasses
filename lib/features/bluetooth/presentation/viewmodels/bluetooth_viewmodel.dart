@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_sound/flutter_sound.dart';
+import 'package:audio_session/audio_session.dart';
 import '../../domain/entities/bluetooth_device_entity.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
 
@@ -37,10 +39,23 @@ class BluetoothViewModel extends ChangeNotifier {
 
   StreamSubscription? _scanSubscription;
   StreamSubscription? _ipSubscription;
+  StreamSubscription? _imageSubscription;
+  StreamSubscription? _audioSubscription;
 
-  // Image Stream
-  Stream<Uint8List>? _imageStream;
-  Stream<Uint8List>? get imageStream => _imageStream;
+  // Audio State
+  FlutterSoundPlayer? _audioPlayer;
+  bool _isAudioEnabled = false;
+  bool get isAudioEnabled => _isAudioEnabled;
+
+  // Image State
+  Uint8List? _lastImage;
+  Uint8List? get lastImage => _lastImage;
+
+  String? _imageHeaderHex;
+  String? get imageHeaderHex => _imageHeaderHex;
+
+  String? _imageTransferStatus;
+  String? get imageTransferStatus => _imageTransferStatus;
 
   BluetoothViewModel({required this.repository});
 
@@ -166,9 +181,41 @@ class BluetoothViewModel extends ChangeNotifier {
 
   void startImageListener() {
     if (_connectedDevice == null) return;
+
+    // Prevent multiple subscriptions
+    if (_imageSubscription != null) return;
+
+    _imageTransferStatus = "Listening for images...";
+    notifyListeners();
+
     try {
-      _imageStream = repository.listenToImages(_connectedDevice!.id);
-      notifyListeners();
+      _imageSubscription = repository
+          .listenToImages(_connectedDevice!.id)
+          .listen(
+            (event) {
+              if (event is ImageReceptionProgress) {
+                _imageTransferStatus =
+                    "Receiving: ${event.bytesReceived} bytes (${event.packetsReceived} pkts)";
+                notifyListeners();
+              } else if (event is ImageReceptionSuccess) {
+                _lastImage = event.imageBytes;
+                _imageHeaderHex = event.imageBytes
+                    .take(20)
+                    .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                    .join(' ');
+                _imageTransferStatus =
+                    "Image Received! (${event.imageBytes.length} bytes)";
+                notifyListeners();
+              } else if (event is ImageReceptionError) {
+                _errorMessage = "Image Error: ${event.error}";
+                notifyListeners();
+              }
+            },
+            onError: (e) {
+              _errorMessage = "Image Stream Error: $e";
+              notifyListeners();
+            },
+          );
     } catch (e) {
       _errorMessage = "Failed to start image listener: $e";
       notifyListeners();
@@ -177,6 +224,10 @@ class BluetoothViewModel extends ChangeNotifier {
 
   Future<void> triggerPhoto() async {
     if (_connectedDevice == null) return;
+
+    // Ensure we are listening
+    startImageListener();
+
     try {
       await repository.triggerPhoto(_connectedDevice!.id);
       _statusMessage = "Photo triggered";
@@ -189,6 +240,10 @@ class BluetoothViewModel extends ChangeNotifier {
 
   Future<void> startVideo() async {
     if (_connectedDevice == null) return;
+
+    // Ensure we are listening
+    startImageListener();
+
     try {
       await repository.startVideo(_connectedDevice!.id);
       _statusMessage = "Video started";
@@ -196,6 +251,143 @@ class BluetoothViewModel extends ChangeNotifier {
     } catch (e) {
       _errorMessage = "Failed to start video: $e";
       notifyListeners();
+    }
+  }
+
+  // Audio Methods
+
+  Future<void> _initAudio() async {
+    if (_audioPlayer != null) return;
+    _audioPlayer = FlutterSoundPlayer();
+    try {
+      // Open player
+      await _audioPlayer!.openPlayer();
+      debugPrint("Audio player opened");
+
+      // Configure Audio Session for Speaker Output (Playback Only)
+      final session = await AudioSession.instance;
+      await session.configure(
+        AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionCategoryOptions:
+              AVAudioSessionCategoryOptions.defaultToSpeaker |
+              AVAudioSessionCategoryOptions.allowBluetooth,
+          avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+          avAudioSessionRouteSharingPolicy:
+              AVAudioSessionRouteSharingPolicy.defaultPolicy,
+          avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+          androidAudioAttributes: const AndroidAudioAttributes(
+            contentType: AndroidAudioContentType.speech,
+            flags: AndroidAudioFlags.audibilityEnforced,
+            usage: AndroidAudioUsage.media,
+          ),
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+          androidWillPauseWhenDucked: true,
+        ),
+      );
+      debugPrint("Audio session configured for speaker");
+    } catch (e) {
+      debugPrint("Failed to open audio player or configure session: $e");
+      _errorMessage = "Audio Init Failed: $e";
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleAudio() async {
+    debugPrint("Toggle audio called. Current state: $_isAudioEnabled");
+    if (_isAudioEnabled) {
+      await stopAudio();
+    } else {
+      await startAudio();
+    }
+  }
+
+  Future<void> startAudio() async {
+    if (_connectedDevice == null) return;
+
+    // Request microphone permission (required for playAndRecord session)
+    // final status = await Permission.microphone.request();
+    // if (status != PermissionStatus.granted) {
+    //   _errorMessage = "Microphone permission required for audio";
+    //   notifyListeners();
+    //   return;
+    // }
+
+    await _initAudio();
+
+    if (_audioPlayer == null || !_audioPlayer!.isOpen()) {
+      _errorMessage = "Audio player not initialized";
+      notifyListeners();
+      return;
+    }
+
+    try {
+      debugPrint("Starting audio player stream...");
+      // Start playing stream (PCM 16-bit, 16kHz, Mono)
+      await _audioPlayer!.startPlayerFromStream(
+        codec: Codec.pcm16,
+        numChannels: 1,
+        sampleRate: 16000,
+        bufferSize: 8192,
+        interleaved: false,
+      );
+
+      _statusMessage = "Starting audio stream...";
+      notifyListeners();
+
+      debugPrint("Subscribing to repository audio stream...");
+      _audioSubscription = repository
+          .startAudioStream(_connectedDevice!.id)
+          .listen(
+            (data) {
+              if (_audioPlayer != null && _audioPlayer!.isPlaying) {
+                // feed the player
+                // debugPrint("Feeding ${data.length} bytes to audio player");
+                _audioPlayer!.uint8ListSink!.add(data);
+              }
+            },
+            onError: (e) {
+              debugPrint("Audio Stream Error in ViewModel: $e");
+              _errorMessage = "Audio Stream Error: $e";
+              notifyListeners();
+              stopAudio();
+            },
+            onDone: () {
+              debugPrint("Audio Stream Done in ViewModel");
+              stopAudio();
+            },
+          );
+
+      _isAudioEnabled = true;
+      _statusMessage = "Audio started";
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Failed to start audio in ViewModel: $e");
+      _errorMessage = "Failed to start audio: $e";
+      notifyListeners();
+      await stopAudio();
+    }
+  }
+
+  Future<void> stopAudio() async {
+    debugPrint("Stopping audio...");
+    try {
+      await _audioSubscription?.cancel();
+      _audioSubscription = null;
+
+      if (_audioPlayer != null && _audioPlayer!.isPlaying) {
+        await _audioPlayer!.stopPlayer();
+      }
+
+      if (_connectedDevice != null) {
+        await repository.stopAudioStream(_connectedDevice!.id);
+      }
+
+      _isAudioEnabled = false;
+      _statusMessage = "Audio stopped";
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Error stopping audio: $e");
     }
   }
 
@@ -272,6 +464,9 @@ class BluetoothViewModel extends ChangeNotifier {
   void dispose() {
     _scanSubscription?.cancel();
     _ipSubscription?.cancel();
+    _imageSubscription?.cancel();
+    _audioSubscription?.cancel();
+    _audioPlayer?.closePlayer();
     super.dispose();
   }
 }
