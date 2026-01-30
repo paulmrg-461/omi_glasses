@@ -102,6 +102,15 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   }
 
   @override
+  Future<bool> get isBluetoothEnabled => dataSource.isBluetoothEnabled;
+
+  @override
+  Stream<bool> get bluetoothState => dataSource.bluetoothState;
+
+  @override
+  Future<void> turnOnBluetooth() => dataSource.turnOnBluetooth();
+
+  @override
   Stream<List<BluetoothDeviceEntity>> get scanResults {
     return dataSource.scanResults.map((results) {
       return results.map((result) {

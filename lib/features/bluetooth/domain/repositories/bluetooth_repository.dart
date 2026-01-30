@@ -26,6 +26,11 @@ abstract class BluetoothRepository {
 
   // Battery features
   Stream<int> monitorBatteryLevel(String deviceId);
+
+  // Bluetooth State
+  Future<bool> get isBluetoothEnabled;
+  Stream<bool> get bluetoothState;
+  Future<void> turnOnBluetooth();
 }
 
 abstract class ImageReceptionState {}

@@ -69,6 +69,18 @@ class BluetoothViewModel extends ChangeNotifier {
     _statusMessage = null;
     notifyListeners();
 
+    // Check Bluetooth state first
+    try {
+      final isBlueOn = await repository.isBluetoothEnabled;
+      if (!isBlueOn) {
+        _errorMessage = "Bluetooth está desactivado. Por favor enciéndelo.";
+        notifyListeners();
+        return;
+      }
+    } catch (e) {
+      debugPrint("Error checking bluetooth state: $e");
+    }
+
     // Request permissions
     await [
       Permission.bluetoothScan,
@@ -87,7 +99,26 @@ class BluetoothViewModel extends ChangeNotifier {
       notifyListeners();
     });
 
-    await repository.startScan();
+    try {
+      await repository.startScan();
+    } catch (e) {
+      _errorMessage = "Error starting scan: $e";
+      _isScanning = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> enableBluetooth() async {
+    try {
+      await repository.turnOnBluetooth();
+      // Wait for it to initialize
+      await Future.delayed(const Duration(seconds: 2));
+      // Retry scan
+      startScan();
+    } catch (e) {
+      _errorMessage = "No se pudo encender Bluetooth. Ve a Configuración.";
+      notifyListeners();
+    }
   }
 
   Future<void> stopScan() async {

@@ -26,6 +26,11 @@ abstract class BluetoothRemoteDataSource {
     String serviceUuid,
     String charUuid,
   );
+
+  // Bluetooth State
+  Future<bool> get isBluetoothEnabled;
+  Stream<bool> get bluetoothState;
+  Future<void> turnOnBluetooth();
 }
 
 class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
@@ -46,6 +51,33 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
   @override
   Future<void> stopScan() {
     return FlutterBluePlus.stopScan();
+  }
+
+  @override
+  Future<bool> get isBluetoothEnabled async {
+    final state = await FlutterBluePlus.adapterState.first;
+    return state == BluetoothAdapterState.on;
+  }
+
+  @override
+  Stream<bool> get bluetoothState {
+    return FlutterBluePlus.adapterState.map(
+      (s) => s == BluetoothAdapterState.on,
+    );
+  }
+
+  @override
+  Future<void> turnOnBluetooth() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        await FlutterBluePlus.turnOn();
+      } catch (e) {
+        debugPrint("Error turning on Bluetooth: $e");
+        throw Exception("Could not turn on Bluetooth automatically.");
+      }
+    } else {
+      throw Exception("Turn on Bluetooth in Settings.");
+    }
   }
 
   @override
