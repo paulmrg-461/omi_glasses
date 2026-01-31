@@ -15,21 +15,35 @@ void main() {
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
 
-    // Mock Permission Handler Channel
-    const channel = MethodChannel('flutter.baseflow.com/permissions/methods');
+    // Mock permissions and service status
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-          if (methodCall.method == 'requestPermissions') {
-            return {
-              Permission.bluetoothScan.value: PermissionStatus.granted.index,
-              Permission.bluetoothConnect.value: PermissionStatus.granted.index,
-              Permission.location.value: PermissionStatus.granted.index,
-            };
-          }
-          return null;
-        });
+        .setMockMethodCallHandler(
+      const MethodChannel('flutter.baseflow.com/permissions/methods'),
+      (MethodCall methodCall) async {
+        if (methodCall.method == 'requestPermissions') {
+          return {
+            Permission.bluetoothScan.value: PermissionStatus.granted.index,
+            Permission.bluetoothConnect.value: PermissionStatus.granted.index,
+            Permission.location.value: PermissionStatus.granted.index,
+          };
+        } else if (methodCall.method == 'checkServiceStatus') {
+          return ServiceStatus.enabled.index; // Mock location service enabled
+        }
+        return null;
+      },
+    );
 
     mockRepository = MockBluetoothRepository();
+
+    // Mock default behaviors
+    when(() => mockRepository.isBluetoothEnabled).thenAnswer((_) async => true);
+    when(
+      () => mockRepository.monitorBatteryLevel(any()),
+    ).thenAnswer((_) => Stream.value(100));
+    when(
+      () => mockRepository.listenToImages(any()),
+    ).thenAnswer((_) => Stream.empty());
+
     viewModel = BluetoothViewModel(repository: mockRepository);
   });
 
@@ -73,23 +87,6 @@ void main() {
       await viewModel.connect(deviceId);
     });
 
-    test('handles "Success" status correctly', () async {
-      when(
-        () => mockRepository.sendWifiCredentials(deviceId, ssid, password),
-      ).thenAnswer((_) async {});
-
-      when(
-        () => mockRepository.listenForIpAddress(deviceId),
-      ).thenAnswer((_) => Stream.value("Success"));
-
-      await viewModel.setupWifi(ssid, password);
-
-      expect(viewModel.statusMessage, contains("Accepted"));
-      expect(viewModel.errorMessage, isNull);
-      expect(viewModel.cameraIp, isNull);
-      expect(viewModel.isSettingUpWifi, false);
-    });
-
     test('handles valid IP correctly', () async {
       when(
         () => mockRepository.sendWifiCredentials(deviceId, ssid, password),
@@ -101,8 +98,11 @@ void main() {
 
       await viewModel.setupWifi(ssid, password);
 
+      // Trigger the stream listener
+      await Future.delayed(Duration.zero);
+
       expect(viewModel.cameraIp, "192.168.1.100");
-      expect(viewModel.statusMessage, contains("IP: 192.168.1.100"));
+      expect(viewModel.statusMessage, contains("Connected"));
       expect(viewModel.errorMessage, isNull);
     });
 

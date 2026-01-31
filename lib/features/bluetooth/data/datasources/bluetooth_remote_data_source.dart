@@ -6,7 +6,7 @@ abstract class BluetoothRemoteDataSource {
   Stream<List<ScanResult>> get scanResults;
   Future<void> startScan({Duration? timeout, List<String>? withServices});
   Future<void> stopScan();
-  Future<void> connect(BluetoothDevice device, {bool autoConnect = true});
+  Future<void> connect(BluetoothDevice device, {bool autoConnect = false});
   Future<void> disconnect(BluetoothDevice device);
   Future<List<String>> discoverServices(BluetoothDevice device);
   Future<void> writeCharacteristic(
@@ -83,22 +83,34 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
   @override
   Future<void> connect(
     BluetoothDevice device, {
-    bool autoConnect = true,
+    bool autoConnect =
+        false, // Changed to false as per OMI Guide for better reliability
   }) async {
     // DO NOT disconnect here automatically. It interferes with retry logic.
     // Only disconnect if we are forcing a full reset, which should be done outside or with a flag.
 
-    // Force delay to ensure GATT is fully cleared if we were just disconnected
-    // await Future.delayed(const Duration(milliseconds: 200));
-
-    // Use autoConnect based on parameter
     debugPrint("Connecting with autoConnect: $autoConnect...");
 
     try {
       await device.connect(
         autoConnect: autoConnect,
-        mtu: null, // REQUIRED for autoConnect: true
+        mtu: null, // REQUIRED for autoConnect: true (if true)
       );
+
+      // IMPORTANT: Discover services on Android after connection
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        // Add a delay to allow GATT stack to settle before discovery
+        // This prevents hangs on some Android devices (Status 133/255 aftermath)
+        await Future.delayed(const Duration(milliseconds: 1000));
+        
+        debugPrint("Android detected: Discovering services...");
+        try {
+          await device.discoverServices();
+        } catch (e) {
+           debugPrint("Warning: Initial service discovery failed ($e). Continuing anyway...");
+           // We continue because the ViewModel will try discovery again later
+        }
+      }
 
       // Request MTU with a safe delay and error handling
       if (defaultTargetPlatform == TargetPlatform.android) {
@@ -114,8 +126,6 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
               await Future.delayed(const Duration(milliseconds: 500));
 
               await device.requestMtu(512);
-              int currentMtu = await device.mtu.first;
-              debugPrint("Current MTU: $currentMtu");
             } catch (e) {
               debugPrint("Failed to request MTU: $e");
             }

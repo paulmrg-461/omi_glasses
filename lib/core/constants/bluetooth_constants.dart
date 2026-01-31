@@ -14,9 +14,8 @@ class BluetoothConstants {
   static const String batteryServiceUuid = "180f";
   static const String batteryLevelUuid = "2a19";
 
-  // Wi-Fi UUIDs (NOT SUPPORTED IN FIRMWARE v2.1.1)
-  // Kept for reference but not available on OMI Glasses
-  static const String wifiServiceUuid = "30295780-4301-eabd-2904-2849adfeae43";
-  static const String wifiCharacteristicUuid =
-      "30295783-4301-eabd-2904-2849adfeae43";
+  // Wi-Fi UUIDs
+  static const String wifiSsidUuid = "19b10003-e8f2-537e-4f6c-d104768a1214";
+  static const String wifiPasswordUuid = "19b10004-e8f2-537e-4f6c-d104768a1214";
+  static const String ipAddressUuid = "19b10008-e8f2-537e-4f6c-d104768a1214";
 }

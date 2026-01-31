@@ -13,6 +13,8 @@ class MockBluetoothDevice extends Mock implements BluetoothDevice {}
 
 class MockScanResult extends Mock implements ScanResult {}
 
+class MockAdvertisementData extends Mock implements AdvertisementData {}
+
 void main() {
   late BluetoothRepositoryImpl repository;
   late MockBluetoothRemoteDataSource mockDataSource;
@@ -29,13 +31,19 @@ void main() {
   group('BluetoothRepositoryImpl', () {
     test('startScan calls dataSource.startScan', () async {
       when(
-        () => mockDataSource.startScan(timeout: any(named: 'timeout')),
+        () => mockDataSource.startScan(
+          timeout: any(named: 'timeout'),
+          withServices: any(named: 'withServices'),
+        ),
       ).thenAnswer((_) async {});
 
       await repository.startScan();
 
       verify(
-        () => mockDataSource.startScan(timeout: any(named: 'timeout')),
+        () => mockDataSource.startScan(
+          timeout: any(named: 'timeout'),
+          withServices: any(named: 'withServices'),
+        ),
       ).called(1);
     });
 
@@ -52,85 +60,143 @@ void main() {
       const ssid = 'test_ssid';
       const password = 'test_password';
 
-      test('should send correct packets when service exists', () async {
-        // Arrange
-        when(
-          () => mockDataSource.writeCharacteristicBytes(
-            any(),
-            any(),
-            any(),
-            any(),
-          ),
-        ).thenAnswer((_) async {});
-
-        // Act
-        await repository.sendWifiCredentials(deviceId, ssid, password);
-
-        // Assert
-        // Verify first packet (Credentials)
-        verify(
-          () => mockDataSource.writeCharacteristicBytes(
-            any(that: isA<BluetoothDevice>()),
-            BluetoothConstants.wifiServiceUuid,
-            BluetoothConstants.wifiCharacteristicUuid,
-            any(
-              that: predicate<List<int>>((bytes) {
-                // Basic check: starts with 0x01
-                return bytes[0] == 0x01;
-              }),
-            ),
-          ),
-        ).called(1);
-
-        // Verify second packet (Start command)
-        verify(
-          () => mockDataSource.writeCharacteristicBytes(
-            any(that: isA<BluetoothDevice>()),
-            BluetoothConstants.wifiServiceUuid,
-            BluetoothConstants.wifiCharacteristicUuid,
-            [0x02],
-          ),
-        ).called(1);
-      });
-
       test(
-        'should throw user-friendly exception when service not found',
+        'should write SSID and Password to respective characteristics',
         () async {
           // Arrange
           when(
-            () => mockDataSource.writeCharacteristicBytes(
-              any(),
-              any(),
-              any(),
-              any(),
-            ),
-          ).thenThrow(Exception('Service 3029... not found'));
+            () =>
+                mockDataSource.writeCharacteristic(any(), any(), any(), any()),
+          ).thenAnswer((_) async {});
 
-          // Act & Assert
-          expect(
-            () => repository.sendWifiCredentials(deviceId, ssid, password),
-            throwsA(
-              predicate(
-                (e) => e.toString().contains(
-                  'This OMI device (Glasses) does not support',
-                ),
-              ),
+          // Act
+          await repository.sendWifiCredentials(deviceId, ssid, password);
+
+          // Assert
+          // Verify SSID write
+          verify(
+            () => mockDataSource.writeCharacteristic(
+              any(that: isA<BluetoothDevice>()),
+              BluetoothConstants.serviceUuid,
+              BluetoothConstants.wifiSsidUuid,
+              ssid,
             ),
-          );
+          ).called(1);
+
+          // Verify Password write
+          verify(
+            () => mockDataSource.writeCharacteristic(
+              any(that: isA<BluetoothDevice>()),
+              BluetoothConstants.serviceUuid,
+              BluetoothConstants.wifiPasswordUuid,
+              password,
+            ),
+          ).called(1);
         },
       );
+    });
 
-      test('should throw exception for invalid SSID length', () async {
+    group('listenForIpAddress', () {
+      const deviceId = 'test_device_id';
+      const ipAddress = '192.168.1.100';
+
+      test('should return IP address stream', () async {
+        // Arrange
+        when(
+          () => mockDataSource.subscribeToCharacteristic(any(), any(), any()),
+        ).thenAnswer((_) => Stream.value(ipAddress.codeUnits));
+
+        // Act
+        final stream = repository.listenForIpAddress(deviceId);
+
+        // Assert
+        expect(stream, emits(ipAddress));
+        verify(
+          () => mockDataSource.subscribeToCharacteristic(
+            any(that: isA<BluetoothDevice>()),
+            BluetoothConstants.serviceUuid,
+            BluetoothConstants.ipAddressUuid,
+          ),
+        ).called(1);
+      });
+    });
+
+    group('scanResults', () {
+      test('filters by UUID and correctly names nameless OMI device', () {
+        // Arrange
+        final mockResult = MockScanResult();
+        final mockDevice = MockBluetoothDevice();
+        final mockAdData = MockAdvertisementData();
+
+        when(() => mockResult.device).thenReturn(mockDevice);
+        when(() => mockResult.advertisementData).thenReturn(mockAdData);
+        when(() => mockResult.rssi).thenReturn(-50);
+
+        when(
+          () => mockDevice.remoteId,
+        ).thenReturn(const DeviceIdentifier('id1'));
+        when(() => mockDevice.platformName).thenReturn(''); // Nameless
+
+        when(() => mockAdData.localName).thenReturn('');
+        when(
+          () => mockAdData.serviceUuids,
+        ).thenReturn([Guid(BluetoothConstants.serviceUuid)]); // Has OMI UUID
+        when(() => mockAdData.manufacturerData).thenReturn({});
+
+        when(
+          () => mockDataSource.scanResults,
+        ).thenAnswer((_) => Stream.value([mockResult]));
+
+        // Act
+        final stream = repository.scanResults;
+
+        // Assert
         expect(
-          () => repository.sendWifiCredentials(deviceId, '', password),
-          throwsException,
+          stream,
+          emits(
+            predicate<List<BluetoothDeviceEntity>>((list) {
+              return list.length == 1 &&
+                  list.first.name == 'OmiGlass' && // Autocomplete check (Updated)
+                  list.first.id == 'id1';
+            }),
+          ),
         );
       });
 
-      test('should throw exception for invalid Password length', () async {
+      test('filters out non-OMI devices only if weak signal', () {
+        // Arrange
+        final mockResult = MockScanResult();
+        final mockDevice = MockBluetoothDevice();
+        final mockAdData = MockAdvertisementData();
+
+        when(() => mockResult.device).thenReturn(mockDevice);
+        when(() => mockResult.advertisementData).thenReturn(mockAdData);
+        when(() => mockResult.rssi).thenReturn(-99); // WEAK SIGNAL
+
+        when(
+          () => mockDevice.remoteId,
+        ).thenReturn(const DeviceIdentifier('id2'));
+        when(() => mockDevice.platformName).thenReturn('Some Device');
+
+        when(() => mockAdData.localName).thenReturn('');
+        when(() => mockAdData.serviceUuids).thenReturn([]); // No OMI UUID
+        when(() => mockAdData.manufacturerData).thenReturn({});
+
+        when(
+          () => mockDataSource.scanResults,
+        ).thenAnswer((_) => Stream.value([mockResult]));
+
+        // Act
+        final stream = repository.scanResults;
+
+        // Assert
         expect(
-          () => repository.sendWifiCredentials(deviceId, ssid, 'short'),
-          throwsException,
+          stream,
+          emits(
+            predicate<List<BluetoothDeviceEntity>>((list) {
+              return list.isEmpty;
+            }),
+          ),
         );
       });
     });

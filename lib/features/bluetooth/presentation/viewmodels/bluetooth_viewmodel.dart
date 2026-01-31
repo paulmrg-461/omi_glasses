@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:omi_glasses/core/constants/bluetooth_constants.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:audio_session/audio_session.dart';
@@ -82,11 +83,32 @@ class BluetoothViewModel extends ChangeNotifier {
     }
 
     // Request permissions
-    await [
+    Map<Permission, PermissionStatus> statuses = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.location,
     ].request();
+
+    debugPrint(
+      "Permissions: Scan=${statuses[Permission.bluetoothScan]}, Connect=${statuses[Permission.bluetoothConnect]}, Location=${statuses[Permission.location]}",
+    );
+
+    // VALIDATE CRITICAL PERMISSIONS
+    if (statuses[Permission.bluetoothScan] == PermissionStatus.permanentlyDenied ||
+        statuses[Permission.bluetoothConnect] == PermissionStatus.permanentlyDenied) {
+      _errorMessage =
+          "Permisos Bluetooth denegados permanentemente. Ve a Configuración.";
+      notifyListeners();
+      return;
+    }
+
+    // Check if location services are enabled (required for BLE on Android < 12 and some >= 12)
+    if (await Permission.location.serviceStatus.isDisabled) {
+      debugPrint("WARNING: Location services are DISABLED. BLE scan may fail.");
+      _errorMessage = "Activa la Ubicación/GPS para escanear.";
+      notifyListeners();
+      // Don't return, try scanning anyway, but warn.
+    }
 
     _isScanning = true;
     notifyListeners();
@@ -167,11 +189,31 @@ class BluetoothViewModel extends ChangeNotifier {
       try {
         _connectedDeviceServices = await repository.discoverServices(deviceId);
 
+        // VERIFY: Ensure this is actually an OMI device
+        // Since we are allowing "Unknown" devices to connect, we must verify the Service UUID post-connection.
+        final hasOmiService = _connectedDeviceServices.any(
+          (s) =>
+              s.toLowerCase() == BluetoothConstants.serviceUuid.toLowerCase(),
+        );
+
+        if (!hasOmiService) {
+          debugPrint(
+            "Device connected but MISSING Omi Service UUID. Disconnecting.",
+          );
+          await repository.disconnect(deviceId);
+          _errorMessage =
+              "Error: No son las Omi Glasses (Servicio no encontrado)";
+          _connectedDevice = null;
+          notifyListeners();
+          return;
+        }
+
         // Start monitoring battery automatically
         startBatteryListener();
       } catch (e) {
-        debugPrint("Error discovering services: $e");
-        _connectedDeviceServices = ["Error discovering services: $e"];
+        debugPrint("Service discovery failed: $e");
+        _errorMessage = "Error al verificar servicios";
+        notifyListeners();
       }
 
       _errorMessage = null;
@@ -478,13 +520,7 @@ class BluetoothViewModel extends ChangeNotifier {
             (statusOrIp) {
               debugPrint("Received status/IP from glasses: $statusOrIp");
 
-              if (statusOrIp == "Success") {
-                // Wi-Fi connected, but no IP yet.
-                // We can notify the user that credentials were accepted.
-                _statusMessage = "Wi-Fi Credentials Accepted! connecting...";
-                _errorMessage = null;
-                // We don't set _cameraIp yet because "Success" is not an IP.
-              } else if (statusOrIp.contains(".")) {
+              if (statusOrIp.contains(".")) {
                 // It looks like an IP address (basic check)
                 _cameraIp = statusOrIp;
                 _statusMessage = "Wi-Fi Connected! IP: $statusOrIp";
@@ -492,6 +528,9 @@ class BluetoothViewModel extends ChangeNotifier {
               } else if (statusOrIp.startsWith("Error")) {
                 _errorMessage = "Wi-Fi Error: $statusOrIp";
                 _statusMessage = null;
+              } else {
+                // Unknown status or intermediate state
+                debugPrint("Unknown status: $statusOrIp");
               }
 
               _isSettingUpWifi = false;

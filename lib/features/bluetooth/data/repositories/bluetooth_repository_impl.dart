@@ -113,20 +113,95 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   @override
   Stream<List<BluetoothDeviceEntity>> get scanResults {
     return dataSource.scanResults.map((results) {
-      return results.map((result) {
-        final localName = result.advertisementData.localName;
-        final platformName = result.device.platformName;
+      // DEBUG: Log RAW results to diagnose visibility issues
+      if (results.isNotEmpty) {
+        debugPrint("BlueRepo: RAW Scan results count: ${results.length}");
+        for (var r in results) {
+          // Log EVERYTHING to find the hidden device
+          final name = r.device.platformName;
+          debugPrint(
+            "  >> Device: '$name' (${r.device.remoteId}) RSSI: ${r.rssi}",
+          );
+          debugPrint("     UUIDs: ${r.advertisementData.serviceUuids}");
+        }
+      }
 
-        final name = localName.isNotEmpty
-            ? localName
-            : (platformName.isNotEmpty ? platformName : 'Unknown Device');
+      final filteredResults = results.where((result) {
+        try {
+          final platformName = result.device.platformName;
+          final serviceUuids = result.advertisementData.serviceUuids
+              .map((uuid) => uuid.toString().toLowerCase())
+              .toList();
+
+          // 1. Check strict UUID match (Primary detection method for new firmware)
+          // Firmware 1.0.4 Update: UUID is guaranteed to be in the Primary Advertisement packet.
+          final hasOmiUuid = serviceUuids.contains(
+            BluetoothConstants.serviceUuid.toLowerCase(),
+          );
+
+          // 2. Check name match (Legacy fallback & Scan Response)
+          // Firmware 1.0.4 Update: Name "OmiGlass" is in Scan Response.
+          final nameStr = platformName.toLowerCase();
+          final hasOmiName =
+              nameStr.contains("omi") ||
+              nameStr.contains("open glass") ||
+              nameStr.contains("openglass");
+
+          // Debug logic for detection
+          if (hasOmiUuid) {
+            // Found via UUID (Perfect!)
+          } else if (hasOmiName) {
+            debugPrint(
+              "BlueRepo: Detected by Name only (UUID missing in packet?): $platformName",
+            );
+          }
+
+          // 3. Proximity Fallback (Safety Net)
+          // If the OS hasn't merged the packet yet, we accept strong signals as potential candidates.
+          final isStrongSignal = result.rssi > -60;
+
+          // Accept if: UUID matches, OR Name matches, OR it's a strong signal nearby
+          return hasOmiUuid || hasOmiName || isStrongSignal;
+        } catch (e) {
+          debugPrint("BlueRepo: Error filtering device: $e");
+          return false;
+        }
+      });
+
+      // Sort by RSSI (Strongest signal first)
+      final sortedResults = filteredResults.toList()
+        ..sort((a, b) => b.rssi.compareTo(a.rssi));
+
+      return sortedResults.map((result) {
+        String name = result.device.platformName;
+        final hasOmiUuid = result.advertisementData.serviceUuids
+            .map((u) => u.toString().toLowerCase())
+            .contains(BluetoothConstants.serviceUuid.toLowerCase());
+
+        final isOmiDevice =
+            hasOmiUuid ||
+            name.toLowerCase().contains("omi") ||
+            name.toLowerCase().contains("open glass");
+
+        // Autocomplete name if missing
+        if (name.isEmpty) {
+          if (isOmiDevice) {
+            // If we have the UUID, we know it's OmiGlass, even if the Name packet hasn't arrived yet.
+            name = 'OmiGlass';
+          } else if (result.rssi > -60) {
+            // Fallback for strong signal devices that haven't revealed their identity yet
+            name = 'OmiGlass (Detectado por Proximidad)';
+          } else {
+            name = 'Dispositivo Desconocido';
+          }
+        }
 
         return BluetoothDeviceEntity(
           id: result.device.remoteId.toString(),
           name: name,
           rssi: result.rssi,
           serviceUuids: result.advertisementData.serviceUuids
-              .map((uuid) => uuid.toString())
+              .map((u) => u.toString())
               .toList(),
         );
       }).toList();
@@ -135,11 +210,13 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
   @override
   Future<void> startScan() async {
-    // We scan for OMI devices specifically, but also allow general scanning if needed.
-    // For now, let's include the OMI Service UUID to prioritize finding the glasses.
+    // We scan for EVERYTHING (null) to ensure we catch devices that might
+    // put the UUID in the Scan Response (which isn't used for filtering by OS sometimes)
+    // or if the packet is malformed/shortened.
+    // We then filter manually in scanResults.
     return dataSource.startScan(
       timeout: const Duration(seconds: 15),
-      withServices: [BluetoothConstants.serviceUuid],
+      withServices: null, // Scan all devices
     );
   }
 
@@ -151,7 +228,42 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   @override
   Future<void> connect(String deviceId) async {
     final device = BluetoothDevice.fromId(deviceId);
-    return dataSource.connect(device);
+    
+    debugPrint("BlueRepo: Starting Robust Connection Sequence for $deviceId");
+
+    // 1. Preventive Disconnect (Clean state)
+    try { await device.disconnect(); } catch (_) {}
+
+    // 2. Try Fast Connection with Retries (3 attempts)
+    // This handles transient 133/255 errors by simply trying again
+    for (int i = 0; i < 3; i++) {
+      try {
+        debugPrint("BlueRepo: Fast Connect Attempt ${i + 1}/3...");
+        await dataSource.connect(device, autoConnect: false);
+        debugPrint("BlueRepo: Connection Successful!");
+        return;
+      } catch (e) {
+        debugPrint("BlueRepo: Attempt ${i + 1} failed: $e");
+        // Only wait if we have retries left
+        if (i < 2) {
+          // Progressive delay: 500ms, 1000ms
+          int delay = 500 * (i + 1);
+          debugPrint("BlueRepo: Waiting ${delay}ms before retry...");
+          await Future.delayed(Duration(milliseconds: delay));
+        }
+      }
+    }
+
+    // 3. Last Resort: AutoConnect
+    // If fast connection fails repeatedly, we fallback to autoConnect which is more reliable but slower.
+    debugPrint("BlueRepo: Fast attempts exhausted. Trying AutoConnect (Reliable Mode)...");
+    try {
+       // We rely on the VM's timeout to kill this if it takes too long
+       await dataSource.connect(device, autoConnect: true);
+    } catch (e) {
+       debugPrint("BlueRepo: AutoConnect failed: $e");
+       rethrow;
+    }
   }
 
   @override
@@ -174,78 +286,54 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   ) async {
     final device = BluetoothDevice.fromId(deviceId);
 
-    // Construct packet: [cmd(1), ssid_len, ssid..., pass_len, pass...]
-    final ssidBytes = utf8.encode(ssid);
-    final passBytes = utf8.encode(password);
-
-    if (ssidBytes.isEmpty || ssidBytes.length > 32) {
-      throw Exception("Invalid SSID length (max 32)");
-    }
-    if (passBytes.length < 8 || passBytes.length > 64) {
-      throw Exception("Invalid Password length (min 8, max 64)");
-    }
-
-    List<int> packet = [];
-    packet.add(0x01); // WIFI_SETUP command
-    packet.add(ssidBytes.length);
-    packet.addAll(ssidBytes);
-    packet.add(passBytes.length);
-    packet.addAll(passBytes);
-
     try {
-      await dataSource.writeCharacteristicBytes(
+      // Write SSID
+      debugPrint("BlueRepo: Writing SSID...");
+      await dataSource.writeCharacteristic(
         device,
-        BluetoothConstants.wifiServiceUuid, // Wi-Fi Service (Necklace only)
-        BluetoothConstants.wifiCharacteristicUuid,
-        packet,
+        BluetoothConstants.serviceUuid,
+        BluetoothConstants.wifiSsidUuid,
+        ssid,
       );
 
-      // Send WIFI_START (0x02) to trigger connection
-      await Future.delayed(const Duration(milliseconds: 500));
-      await dataSource.writeCharacteristicBytes(
+      // Write Password
+      debugPrint("BlueRepo: Writing Password...");
+      await dataSource.writeCharacteristic(
         device,
-        BluetoothConstants.wifiServiceUuid,
-        BluetoothConstants.wifiCharacteristicUuid,
-        [0x02], // WIFI_START command
+        BluetoothConstants.serviceUuid,
+        BluetoothConstants.wifiPasswordUuid,
+        password,
       );
+
+      debugPrint("BlueRepo: WiFi credentials sent successfully.");
     } catch (e) {
-      if (e.toString().contains("Service") &&
-          e.toString().contains("not found")) {
-        throw Exception(
-          "This OMI device (Glasses) does not support Wi-Fi configuration via Bluetooth. Please ensure you are using a compatible firmware version.",
-        );
-      }
-      throw e;
+      debugPrint("BlueRepo: Error sending WiFi credentials: $e");
+      rethrow;
     }
   }
 
   @override
   Stream<String> listenForIpAddress(String deviceId) {
-    // Current firmware doesn't expose IP via BLE directly yet.
-    // It notifies status codes on the wifi characteristic.
-    // 0 = success, other = error.
     final device = BluetoothDevice.fromId(deviceId);
 
     try {
       return dataSource
           .subscribeToCharacteristic(
             device,
-            BluetoothConstants.wifiServiceUuid,
-            BluetoothConstants.wifiCharacteristicUuid,
+            BluetoothConstants.serviceUuid,
+            BluetoothConstants.ipAddressUuid,
           )
           .map((bytes) {
             if (bytes.isNotEmpty) {
-              // 0x00 means success
-              if (bytes[0] == 0) return "Success";
-              return "Error: ${bytes[0]}";
+              final ip = utf8.decode(bytes);
+              debugPrint("BlueRepo: Received IP Address: $ip");
+              return ip;
             }
             return "";
           });
     } catch (e) {
-      // Return empty stream or error if service not found
-      return Stream.error(
-        "Wi-Fi status monitoring not supported on this device.",
-      );
+      debugPrint("BlueRepo: Error listening for IP: $e");
+      return Stream.error("Could not listen for IP address.");
     }
   }
 

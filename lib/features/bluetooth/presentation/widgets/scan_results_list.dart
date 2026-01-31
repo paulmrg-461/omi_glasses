@@ -50,7 +50,7 @@ class ScanResultsList extends StatelessWidget {
               final device = sortedDevices[index];
               return ListTile(
                 title: Text(device.name),
-                subtitle: Text(device.id),
+                subtitle: Text("${device.id} | RSSI: ${device.rssi} dBm"),
                 trailing: ElevatedButton(
                   onPressed: viewModel.isConnecting
                       ? null
