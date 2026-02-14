@@ -4,6 +4,9 @@ import 'package:mocktail/mocktail.dart';
 import 'package:omi_glasses/features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import 'package:omi_glasses/features/bluetooth/presentation/viewmodels/bluetooth_viewmodel.dart';
 import 'package:omi_glasses/features/bluetooth/domain/entities/bluetooth_device_entity.dart';
+import 'package:omi_glasses/features/settings/domain/repositories/settings_repository.dart';
+import 'package:omi_glasses/features/settings/domain/entities/app_settings.dart';
+import 'package:omi_glasses/features/vision/domain/repositories/vision_repository.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class MockBluetoothRepository extends Mock implements BluetoothRepository {}
@@ -11,6 +14,27 @@ class MockBluetoothRepository extends Mock implements BluetoothRepository {}
 void main() {
   late BluetoothViewModel viewModel;
   late MockBluetoothRepository mockRepository;
+  // Minimal fake settings & vision repos to satisfy constructor
+  late _FakeSettingsRepository fakeSettingsRepo;
+  late _FakeVisionRepository fakeVisionRepo;
+
+  class _FakeSettingsRepository implements SettingsRepository {
+    AppSettings _s = const AppSettings();
+    @override
+    Future<void> persist(AppSettings s) async {
+      _s = s;
+    }
+    @override
+    Future<AppSettings> load() async {
+      return _s;
+    }
+  }
+  class _FakeVisionRepository implements VisionRepository {
+    @override
+    Future<String> describeImage({required List<int> imageBytes, required String apiKey, String model = 'gemini-1.5-flash'}) async {
+      return 'ok';
+    }
+  }
 
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -30,7 +54,13 @@ void main() {
         });
 
     mockRepository = MockBluetoothRepository();
-    viewModel = BluetoothViewModel(repository: mockRepository);
+    fakeSettingsRepo = _FakeSettingsRepository();
+    fakeVisionRepo = _FakeVisionRepository();
+    viewModel = BluetoothViewModel(
+      repository: mockRepository,
+      settingsRepository: fakeSettingsRepo,
+      visionRepository: fakeVisionRepo,
+    );
   });
 
   test('startScan calls repository.startScan', () async {

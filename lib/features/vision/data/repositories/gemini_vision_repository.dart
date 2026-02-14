@@ -19,14 +19,11 @@ class GeminiVisionRepository implements VisionRepository {
           "parts": [
             {"text": "Describe the image in Spanish, concise and clear."},
             {
-              "inline_data": {
-                "mime_type": "image/jpeg",
-                "data": base64Image,
-              }
-            }
-          ]
-        }
-      ]
+              "inline_data": {"mime_type": "image/jpeg", "data": base64Image},
+            },
+          ],
+        },
+      ],
     };
     final resp = await http.post(
       uri,

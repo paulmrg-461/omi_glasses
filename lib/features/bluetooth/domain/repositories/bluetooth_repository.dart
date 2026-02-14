@@ -19,6 +19,7 @@ abstract class BluetoothRepository {
   Stream<ImageReceptionState> listenToImages(String deviceId);
   Future<void> triggerPhoto(String deviceId);
   Future<void> startVideo(String deviceId);
+  Future<bool> isPhotoCapable(String deviceId);
 
   // Audio features
   Stream<Uint8List> startAudioStream(String deviceId);

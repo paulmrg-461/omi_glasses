@@ -197,6 +197,14 @@ class BluetoothViewModel extends ChangeNotifier {
 
         // Start monitoring battery automatically
         startBatteryListener();
+
+        // Auto-assign photo source if capable and not set yet
+        if (_photoDeviceId == null) {
+          final canPhoto = await repository.isPhotoCapable(deviceId);
+          if (canPhoto) {
+            await setPhotoSource(deviceId);
+          }
+        }
       } catch (e) {
         debugPrint("Error discovering services: $e");
         _connectedDeviceServices = ["Error discovering services: $e"];
@@ -366,13 +374,14 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> triggerPhoto() async {
-    if (_selectedDevice == null) return;
+    final targetId = _photoDeviceId ?? _selectedDevice?.id;
+    if (targetId == null) return;
 
     // Ensure we are listening
-    startImageListener();
+    startImageListenerFor(targetId);
 
     try {
-      await repository.triggerPhoto(_selectedDevice!.id);
+      await repository.triggerPhoto(targetId);
       _statusMessage = "Photo triggered";
       notifyListeners();
     } catch (e) {
@@ -394,13 +403,14 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> startVideo() async {
-    if (_selectedDevice == null) return;
+    final targetId = _photoDeviceId ?? _selectedDevice?.id;
+    if (targetId == null) return;
 
     // Ensure we are listening
-    startImageListener();
+    startImageListenerFor(targetId);
 
     try {
-      await repository.startVideo(_selectedDevice!.id);
+      await repository.startVideo(targetId);
       _statusMessage = "Video started";
       notifyListeners();
     } catch (e) {

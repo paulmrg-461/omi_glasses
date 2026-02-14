@@ -425,4 +425,22 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       [0x01],
     );
   }
+
+  @override
+  Future<bool> isPhotoCapable(String deviceId) async {
+    final device = BluetoothDevice.fromId(deviceId);
+    try {
+      // Try subscribing to photo data characteristic; if it exists, device is photo-capable
+      final stream = dataSource.subscribeToCharacteristic(
+        device,
+        BluetoothConstants.serviceUuid,
+        BluetoothConstants.photoDataUuid,
+      );
+      // We don't need actual data; just attempt to start notifications once
+      await stream.first.timeout(const Duration(milliseconds: 10), onTimeout: () => Uint8List(0));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 }
