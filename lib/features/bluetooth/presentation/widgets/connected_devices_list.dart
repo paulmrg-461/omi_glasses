@@ -33,19 +33,51 @@ class ConnectedDevicesList extends StatelessWidget {
                   child: InkWell(
                     onTap: () => viewModel.selectDevice(device),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.bluetooth_connected, color: Colors.green),
+                          const Icon(
+                            Icons.bluetooth_connected,
+                            color: Colors.green,
+                          ),
                           const SizedBox(width: 8),
-                          Text(device.name.isNotEmpty ? device.name : "Unknown"),
+                          Text(
+                            device.name.isNotEmpty ? device.name : "Unknown",
+                          ),
                           const SizedBox(width: 8),
                           IconButton(
-                            icon: const Icon(Icons.close, size: 16, color: Colors.red),
+                            icon: const Icon(
+                              Icons.mic,
+                              size: 18,
+                              color: Colors.blue,
+                            ),
+                            onPressed: () =>
+                                viewModel.setAudioSource(device.id),
+                            tooltip: "Usar como Micrófono",
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.camera,
+                              size: 18,
+                              color: Colors.deepPurple,
+                            ),
+                            onPressed: () =>
+                                viewModel.setPhotoSource(device.id),
+                            tooltip: "Usar para Fotos cada 60s",
+                          ),
+                          IconButton(
+                            icon: const Icon(
+                              Icons.close,
+                              size: 16,
+                              color: Colors.red,
+                            ),
                             onPressed: () => viewModel.disconnect(device.id),
                             tooltip: "Disconnect",
-                          )
+                          ),
                         ],
                       ),
                     ),

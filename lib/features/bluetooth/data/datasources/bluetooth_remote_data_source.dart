@@ -346,7 +346,17 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
 
     final characteristic = service!.characteristics.firstWhere(
       (c) => c.uuid.toString() == charUuid,
-      orElse: () => throw Exception('Characteristic $charUuid not found'),
+      orElse: () {
+        // Fallback: pick first writable characteristic in this service
+        final fallback = service!.characteristics.firstWhere(
+          (c) => c.properties.write || c.properties.writeWithoutResponse,
+          orElse: () => throw Exception('Characteristic $charUuid not found'),
+        );
+        debugPrint(
+          "FALLBACK: Using writable characteristic ${fallback.uuid} in service $serviceUuid",
+        );
+        return fallback;
+      },
     );
 
     debugPrint("Writing bytes to characteristic $charUuid: $value");
@@ -381,16 +391,26 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
     final characteristic = service.characteristics.firstWhere(
       (c) => c.uuid.toString() == charUuid,
       orElse: () {
-        final availableChars = service.characteristics
-            .map((c) => c.uuid.toString())
-            .toList();
+        // Fallback to first notifiable characteristic
+        final fallback = service.characteristics.firstWhere(
+          (c) => c.properties.notify,
+          orElse: () {
+            final availableChars = service.characteristics
+                .map((c) => c.uuid.toString())
+                .toList();
+            debugPrint(
+              "CRITICAL ERROR: Characteristic $charUuid NOT found in service $serviceUuid",
+            );
+            debugPrint("Available Characteristics: $availableChars");
+            throw Exception(
+              'Characteristic $charUuid not found. Available: $availableChars',
+            );
+          },
+        );
         debugPrint(
-          "CRITICAL ERROR: Characteristic $charUuid NOT found in service $serviceUuid",
+          "FALLBACK: Using notifiable characteristic ${fallback.uuid} in service $serviceUuid",
         );
-        debugPrint("Available Characteristics: $availableChars");
-        throw Exception(
-          'Characteristic $charUuid not found. Available: $availableChars',
-        );
+        return fallback;
       },
     );
 

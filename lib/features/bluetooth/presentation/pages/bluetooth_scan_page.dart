@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../settings/presentation/pages/settings_page.dart';
+import '../../../settings/presentation/bloc/settings_bloc.dart';
+import '../../../../core/di/injection_container.dart' as di;
 import '../viewmodels/bluetooth_viewmodel.dart';
 import '../widgets/connected_device_view.dart';
 import '../widgets/scan_results_list.dart';
@@ -12,7 +16,25 @@ class BluetoothScanPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('OMI Glasses')),
+      appBar: AppBar(
+        title: const Text('OMI Glasses'),
+        actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => BlocProvider(
+                    create: (_) => di.sl<SettingsBloc>()..add(LoadSettings()),
+                    child: const SettingsPage(),
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.settings),
+          ),
+        ],
+      ),
       body: Consumer<BluetoothViewModel>(
         builder: (context, viewModel, child) {
           // If a device is explicitly selected, show its control view

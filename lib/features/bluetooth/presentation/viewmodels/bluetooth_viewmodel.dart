@@ -4,11 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import '../../domain/entities/bluetooth_device_entity.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
+import '../../../settings/domain/repositories/settings_repository.dart';
+import '../../../vision/domain/repositories/vision_repository.dart';
 
 class BluetoothViewModel extends ChangeNotifier {
   final BluetoothRepository repository;
+  final SettingsRepository settingsRepository;
+  final VisionRepository visionRepository;
 
   List<BluetoothDeviceEntity> _devices = [];
   List<BluetoothDeviceEntity> get devices => _devices;
@@ -50,6 +55,14 @@ class BluetoothViewModel extends ChangeNotifier {
   FlutterSoundPlayer? _audioPlayer;
   bool _isAudioEnabled = false;
   bool get isAudioEnabled => _isAudioEnabled;
+  final FlutterTts _tts = FlutterTts();
+
+  // Role assignments
+  String? _audioDeviceId;
+  String? get audioDeviceId => _audioDeviceId;
+  String? _photoDeviceId;
+  String? get photoDeviceId => _photoDeviceId;
+  Timer? _photoTimer;
 
   // Battery State
   int? _batteryLevel;
@@ -65,7 +78,11 @@ class BluetoothViewModel extends ChangeNotifier {
   String? _imageTransferStatus;
   String? get imageTransferStatus => _imageTransferStatus;
 
-  BluetoothViewModel({required this.repository});
+  BluetoothViewModel({
+    required this.repository,
+    required this.settingsRepository,
+    required this.visionRepository,
+  });
 
   Future<void> startScan() async {
     _errorMessage = null;
@@ -224,6 +241,17 @@ class BluetoothViewModel extends ChangeNotifier {
         _connectedDeviceServices = [];
       }
 
+      // Cleanup roles if the device was assigned
+      if (_audioDeviceId == targetId) {
+        await stopAudio();
+        _audioDeviceId = null;
+      }
+      if (_photoDeviceId == targetId) {
+        _photoTimer?.cancel();
+        _photoTimer = null;
+        _photoDeviceId = null;
+      }
+
       notifyListeners();
       await repository.disconnect(targetId);
     }
@@ -278,6 +306,49 @@ class BluetoothViewModel extends ChangeNotifier {
                 _imageTransferStatus =
                     "Image Received! (${event.imageBytes.length} bytes)";
                 notifyListeners();
+                _describeAndSpeak(event.imageBytes);
+              } else if (event is ImageReceptionError) {
+                _errorMessage = "Image Error: ${event.error}";
+                notifyListeners();
+              }
+            },
+            onError: (e) {
+              _errorMessage = "Image Stream Error: $e";
+              notifyListeners();
+            },
+          );
+    } catch (e) {
+      _errorMessage = "Failed to start image listener: $e";
+      notifyListeners();
+    }
+  }
+
+  void startImageListenerFor(String deviceId) {
+    // Cancel previous to avoid multiple active listeners
+    _imageSubscription?.cancel();
+    _imageSubscription = null;
+    _imageTransferStatus = "Listening for images...";
+    notifyListeners();
+
+    try {
+      _imageSubscription = repository
+          .listenToImages(deviceId)
+          .listen(
+            (event) {
+              if (event is ImageReceptionProgress) {
+                _imageTransferStatus =
+                    "Receiving: ${event.bytesReceived} bytes (${event.packetsReceived} pkts)";
+                notifyListeners();
+              } else if (event is ImageReceptionSuccess) {
+                _lastImage = event.imageBytes;
+                _imageHeaderHex = event.imageBytes
+                    .take(20)
+                    .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                    .join(' ');
+                _imageTransferStatus =
+                    "Image Received! (${event.imageBytes.length} bytes)";
+                notifyListeners();
+                _describeAndSpeak(event.imageBytes);
               } else if (event is ImageReceptionError) {
                 _errorMessage = "Image Error: ${event.error}";
                 notifyListeners();
@@ -302,6 +373,18 @@ class BluetoothViewModel extends ChangeNotifier {
 
     try {
       await repository.triggerPhoto(_selectedDevice!.id);
+      _statusMessage = "Photo triggered";
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = "Failed to trigger photo: $e";
+      notifyListeners();
+    }
+  }
+
+  Future<void> triggerPhotoFor(String deviceId) async {
+    startImageListenerFor(deviceId);
+    try {
+      await repository.triggerPhoto(deviceId);
       _statusMessage = "Photo triggered";
       notifyListeners();
     } catch (e) {
@@ -441,6 +524,23 @@ class BluetoothViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> startAudioFrom(String deviceId) async {
+    // If another audio is active, stop it first
+    await stopAudio();
+    _audioDeviceId = deviceId;
+    // Temporarily set selected device to ensure audio session uses proper route
+    _selectedDevice = _connectedDevices.firstWhere(
+      (d) => d.id == deviceId,
+      orElse: () => BluetoothDeviceEntity(
+        id: deviceId,
+        name: 'Unknown',
+        rssi: 0,
+        serviceUuids: [],
+      ),
+    );
+    await startAudio();
+  }
+
   Future<void> stopAudio() async {
     debugPrint("Stopping audio...");
     try {
@@ -553,6 +653,28 @@ class BluetoothViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> setPhotoSource(
+    String deviceId, {
+    Duration interval = const Duration(seconds: 60),
+  }) async {
+    _photoDeviceId = deviceId;
+    // Start listening to images from the photo device
+    startImageListenerFor(deviceId);
+    // Restart timer
+    _photoTimer?.cancel();
+    _photoTimer = Timer.periodic(interval, (_) {
+      triggerPhotoFor(deviceId);
+    });
+    _statusMessage = "Photo timer started (every ${interval.inSeconds}s)";
+    notifyListeners();
+  }
+
+  Future<void> setAudioSource(String deviceId) async {
+    await startAudioFrom(deviceId);
+    _statusMessage = "Audio source set";
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _scanSubscription?.cancel();
@@ -560,7 +682,33 @@ class BluetoothViewModel extends ChangeNotifier {
     _imageSubscription?.cancel();
     _audioSubscription?.cancel();
     _batterySubscription?.cancel();
+    _photoTimer?.cancel();
     _audioPlayer?.closePlayer();
     super.dispose();
+  }
+
+  Future<void> _describeAndSpeak(Uint8List imageBytes) async {
+    try {
+      final settings = await settingsRepository.load();
+      final key = settings.geminiApiKey;
+      if (key == null || key.isEmpty) {
+        _statusMessage = "Gemini API Key requerida";
+        notifyListeners();
+        return;
+      }
+      final description = await visionRepository.describeImage(
+        imageBytes: imageBytes,
+        apiKey: key,
+        model: 'gemini-2.5-flash',
+      );
+      _statusMessage = "Descripción: $description";
+      notifyListeners();
+      await _tts.setLanguage("es-ES");
+      await _tts.setSpeechRate(0.5);
+      await _tts.speak(description);
+    } catch (e) {
+      _errorMessage = "Gemini/TTS error: $e";
+      notifyListeners();
+    }
   }
 }
