@@ -31,15 +31,25 @@ class ConnectedDeviceView extends StatelessWidget {
           const SizedBox(height: 8),
           ImageDisplay(viewModel: viewModel),
           const SizedBox(height: 32),
-          ElevatedButton(
-            onPressed: () {
-              viewModel.disconnect();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red.shade100,
-              foregroundColor: Colors.red.shade900,
-            ),
-            child: const Text("Disconnect"),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => viewModel.clearSelectedDevice(),
+                icon: const Icon(Icons.arrow_back),
+                label: const Text("Back to List"),
+              ),
+              const SizedBox(width: 16),
+              ElevatedButton.icon(
+                onPressed: () => viewModel.disconnect(),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade100,
+                  foregroundColor: Colors.red.shade900,
+                ),
+                icon: const Icon(Icons.bluetooth_disabled),
+                label: const Text("Disconnect"),
+              ),
+            ],
           ),
           const Divider(),
           StatusMessageDisplay(viewModel: viewModel),

@@ -28,8 +28,11 @@ class BluetoothViewModel extends ChangeNotifier {
   String? _statusMessage;
   String? get statusMessage => _statusMessage;
 
-  BluetoothDeviceEntity? _connectedDevice;
-  BluetoothDeviceEntity? get connectedDevice => _connectedDevice;
+  BluetoothDeviceEntity? _selectedDevice;
+  BluetoothDeviceEntity? get connectedDevice => _selectedDevice;
+
+  List<BluetoothDeviceEntity> _connectedDevices = [];
+  List<BluetoothDeviceEntity> get connectedDevices => _connectedDevices;
 
   List<String> _connectedDeviceServices = [];
   List<String> get connectedDeviceServices => _connectedDeviceServices;
@@ -153,7 +156,7 @@ class BluetoothViewModel extends ChangeNotifier {
           );
 
       // If we get here, we are connected
-      _connectedDevice = _devices.firstWhere(
+      final newDevice = _devices.firstWhere(
         (d) => d.id == deviceId,
         orElse: () => BluetoothDeviceEntity(
           id: deviceId,
@@ -162,6 +165,14 @@ class BluetoothViewModel extends ChangeNotifier {
           serviceUuids: [],
         ),
       );
+
+      // Add to connected list if not already present
+      if (!_connectedDevices.any((d) => d.id == deviceId)) {
+        _connectedDevices.add(newDevice);
+      }
+
+      // Set as selected (active) device
+      _selectedDevice = newDevice;
 
       // Discover services to verify connection and capability
       try {
@@ -199,27 +210,49 @@ class BluetoothViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> disconnect() async {
-    if (_connectedDevice != null) {
-      final deviceId = _connectedDevice!.id;
-      _connectedDevice = null;
-      _connectedDeviceServices = [];
+  Future<void> disconnect([String? deviceId]) async {
+    // If no deviceId provided, try to disconnect the selected one
+    final targetId = deviceId ?? _selectedDevice?.id;
+
+    if (targetId != null) {
+      // Remove from list
+      _connectedDevices.removeWhere((d) => d.id == targetId);
+
+      // If it was the selected device, clear selection
+      if (_selectedDevice?.id == targetId) {
+        _selectedDevice = null;
+        _connectedDeviceServices = [];
+      }
+
       notifyListeners();
-      await repository.disconnect(deviceId);
+      await repository.disconnect(targetId);
     }
   }
 
+  void clearSelectedDevice() {
+    _selectedDevice = null;
+    _connectedDeviceServices = [];
+    notifyListeners();
+  }
+
+  void selectDevice(BluetoothDeviceEntity device) {
+    _selectedDevice = device;
+    // Trigger service discovery to refresh the view for the selected device
+    retryServiceDiscovery();
+    notifyListeners();
+  }
+
   Future<void> retryServiceDiscovery() async {
-    if (_connectedDevice != null) {
+    if (_selectedDevice != null) {
       _connectedDeviceServices = await repository.discoverServices(
-        _connectedDevice!.id,
+        _selectedDevice!.id,
       );
       notifyListeners();
     }
   }
 
   void startImageListener() {
-    if (_connectedDevice == null) return;
+    if (_selectedDevice == null) return;
 
     // Prevent multiple subscriptions
     if (_imageSubscription != null) return;
@@ -229,7 +262,7 @@ class BluetoothViewModel extends ChangeNotifier {
 
     try {
       _imageSubscription = repository
-          .listenToImages(_connectedDevice!.id)
+          .listenToImages(_selectedDevice!.id)
           .listen(
             (event) {
               if (event is ImageReceptionProgress) {
@@ -262,13 +295,13 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> triggerPhoto() async {
-    if (_connectedDevice == null) return;
+    if (_selectedDevice == null) return;
 
     // Ensure we are listening
     startImageListener();
 
     try {
-      await repository.triggerPhoto(_connectedDevice!.id);
+      await repository.triggerPhoto(_selectedDevice!.id);
       _statusMessage = "Photo triggered";
       notifyListeners();
     } catch (e) {
@@ -278,13 +311,13 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> startVideo() async {
-    if (_connectedDevice == null) return;
+    if (_selectedDevice == null) return;
 
     // Ensure we are listening
     startImageListener();
 
     try {
-      await repository.startVideo(_connectedDevice!.id);
+      await repository.startVideo(_selectedDevice!.id);
       _statusMessage = "Video started";
       notifyListeners();
     } catch (e) {
@@ -342,7 +375,7 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> startAudio() async {
-    if (_connectedDevice == null) return;
+    if (_selectedDevice == null) return;
 
     // Request microphone permission (required for playAndRecord session)
     // final status = await Permission.microphone.request();
@@ -376,7 +409,7 @@ class BluetoothViewModel extends ChangeNotifier {
 
       debugPrint("Subscribing to repository audio stream...");
       _audioSubscription = repository
-          .startAudioStream(_connectedDevice!.id)
+          .startAudioStream(_selectedDevice!.id)
           .listen(
             (data) {
               if (_audioPlayer != null && _audioPlayer!.isPlaying) {
@@ -418,8 +451,8 @@ class BluetoothViewModel extends ChangeNotifier {
         await _audioPlayer!.stopPlayer();
       }
 
-      if (_connectedDevice != null) {
-        await repository.stopAudioStream(_connectedDevice!.id);
+      if (_selectedDevice != null) {
+        await repository.stopAudioStream(_selectedDevice!.id);
       }
 
       _isAudioEnabled = false;
@@ -431,7 +464,7 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> startBatteryListener() async {
-    if (_connectedDevice == null) return;
+    if (_selectedDevice == null) return;
 
     // Cancel previous if any
     await _batterySubscription?.cancel();
@@ -439,7 +472,7 @@ class BluetoothViewModel extends ChangeNotifier {
     debugPrint("Starting battery listener...");
     try {
       _batterySubscription = repository
-          .monitorBatteryLevel(_connectedDevice!.id)
+          .monitorBatteryLevel(_selectedDevice!.id)
           .listen(
             (level) {
               debugPrint("Battery Level Received: $level%");
@@ -456,7 +489,7 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> setupWifi(String ssid, String password) async {
-    if (_connectedDevice == null) return;
+    if (_selectedDevice == null) return;
 
     _isSettingUpWifi = true;
     _errorMessage = null;
@@ -464,7 +497,7 @@ class BluetoothViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      debugPrint("Starting Wi-Fi Setup for device: ${_connectedDevice!.id}");
+      debugPrint("Starting Wi-Fi Setup for device: ${_selectedDevice!.id}");
       debugPrint("SSID: $ssid");
 
       // Cancel previous subscription if any
@@ -473,7 +506,7 @@ class BluetoothViewModel extends ChangeNotifier {
       // Start listening for IP
       debugPrint("Subscribing to IP characteristic...");
       _ipSubscription = repository
-          .listenForIpAddress(_connectedDevice!.id)
+          .listenForIpAddress(_selectedDevice!.id)
           .listen(
             (statusOrIp) {
               debugPrint("Received status/IP from glasses: $statusOrIp");
@@ -505,11 +538,7 @@ class BluetoothViewModel extends ChangeNotifier {
 
       // Send credentials
       debugPrint("Sending credentials...");
-      await repository.sendWifiCredentials(
-        _connectedDevice!.id,
-        ssid,
-        password,
-      );
+      await repository.sendWifiCredentials(_selectedDevice!.id, ssid, password);
       debugPrint("Credentials sent successfully.");
 
       // Note: We keep _isSettingUpWifi = true until we get an IP or user cancels?

@@ -48,15 +48,18 @@ class ScanResultsList extends StatelessWidget {
               final sortedDevices = List.of(viewModel.devices)
                 ..sort((a, b) => b.rssi.compareTo(a.rssi));
               final device = sortedDevices[index];
+              final isConnected = viewModel.connectedDevices.any((d) => d.id == device.id);
               return ListTile(
                 title: Text(device.name),
                 subtitle: Text(device.id),
-                trailing: ElevatedButton(
-                  onPressed: viewModel.isConnecting
-                      ? null
-                      : () => viewModel.connect(device.id),
-                  child: const Text("Connect"),
-                ),
+                trailing: isConnected
+                    ? const Text("Connected", style: TextStyle(color: Colors.green))
+                    : ElevatedButton(
+                        onPressed: viewModel.isConnecting
+                            ? null
+                            : () => viewModel.connect(device.id),
+                        child: const Text("Connect"),
+                      ),
               );
             },
           ),
