@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -9,11 +10,13 @@ import '../../domain/entities/bluetooth_device_entity.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
 import '../../../settings/domain/repositories/settings_repository.dart';
 import '../../../vision/domain/repositories/vision_repository.dart';
+import '../../../audio/domain/repositories/audio_repository.dart';
 
 class BluetoothViewModel extends ChangeNotifier {
   final BluetoothRepository repository;
   final SettingsRepository settingsRepository;
   final VisionRepository visionRepository;
+  final AudioRepository audioRepository;
 
   List<BluetoothDeviceEntity> _devices = [];
   List<BluetoothDeviceEntity> get devices => _devices;
@@ -56,6 +59,10 @@ class BluetoothViewModel extends ChangeNotifier {
   bool _isAudioEnabled = false;
   bool get isAudioEnabled => _isAudioEnabled;
   final FlutterTts _tts = FlutterTts();
+  final List<int> _conversationPcm = [];
+  DateTime _lastVoiceTs = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _silenceTimer;
+  int _silenceMinutes = 2;
 
   // Role assignments
   String? _audioDeviceId;
@@ -82,6 +89,7 @@ class BluetoothViewModel extends ChangeNotifier {
     required this.repository,
     required this.settingsRepository,
     required this.visionRepository,
+    required this.audioRepository,
   });
 
   Future<void> startScan() async {
@@ -510,6 +518,7 @@ class BluetoothViewModel extends ChangeNotifier {
                 // debugPrint("Feeding ${data.length} bytes to audio player");
                 _audioPlayer!.uint8ListSink!.add(data);
               }
+              _processAudioForSummary(data);
             },
             onError: (e) {
               debugPrint("Audio Stream Error in ViewModel: $e");
@@ -526,6 +535,7 @@ class BluetoothViewModel extends ChangeNotifier {
       _isAudioEnabled = true;
       _statusMessage = "Audio started";
       notifyListeners();
+      _startSilenceMonitor();
     } catch (e) {
       debugPrint("Failed to start audio in ViewModel: $e");
       _errorMessage = "Failed to start audio: $e";
@@ -568,6 +578,7 @@ class BluetoothViewModel extends ChangeNotifier {
       _isAudioEnabled = false;
       _statusMessage = "Audio stopped";
       notifyListeners();
+      _silenceTimer?.cancel();
     } catch (e) {
       debugPrint("Error stopping audio: $e");
     }
@@ -693,6 +704,7 @@ class BluetoothViewModel extends ChangeNotifier {
     _audioSubscription?.cancel();
     _batterySubscription?.cancel();
     _photoTimer?.cancel();
+    _silenceTimer?.cancel();
     _audioPlayer?.closePlayer();
     super.dispose();
   }
@@ -709,7 +721,7 @@ class BluetoothViewModel extends ChangeNotifier {
       final description = await visionRepository.describeImage(
         imageBytes: imageBytes,
         apiKey: key,
-        model: 'gemini-2.5-flash',
+        model: 'gemini-1.5-flash',
       );
       _statusMessage = "Descripción: $description";
       notifyListeners();
@@ -720,5 +732,115 @@ class BluetoothViewModel extends ChangeNotifier {
       _errorMessage = "Gemini/TTS error: $e";
       notifyListeners();
     }
+  }
+
+  void _processAudioForSummary(Uint8List pcmBytes) {
+    _conversationPcm.addAll(pcmBytes);
+    final int16 = Int16List.view(
+      pcmBytes.buffer,
+      pcmBytes.offsetInBytes,
+      pcmBytes.lengthInBytes ~/ 2,
+    );
+    int sum = 0;
+    for (int i = 0; i < int16.length; i++) {
+      final v = int16[i].abs();
+      sum += v;
+    }
+    final avg = int16.isNotEmpty ? sum / int16.length : 0.0;
+    if (avg > 600) {
+      _lastVoiceTs = DateTime.now();
+    }
+  }
+
+  void _startSilenceMonitor() {
+    _silenceTimer?.cancel();
+    _silenceTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      final idleFor = DateTime.now().difference(_lastVoiceTs).inMinutes;
+      if (idleFor >= _silenceMinutes && _conversationPcm.isNotEmpty) {
+        await _summarizeConversation();
+        _conversationPcm.clear();
+        _lastVoiceTs = DateTime.now();
+      }
+    });
+  }
+
+  Future<void> _summarizeConversation() async {
+    try {
+      final settings = await settingsRepository.load();
+      final key = settings.geminiApiKey ?? '';
+      if (key.isEmpty) {
+        _statusMessage = "Gemini API Key requerida";
+        notifyListeners();
+        return;
+      }
+      final wav = _wrapPcmToWav(
+        Uint8List.fromList(_conversationPcm),
+        sampleRate: 16000,
+        channels: 1,
+      );
+      final summary = await audioRepository.transcribeAndSummarize(
+        wavBytes: wav,
+        apiKey: key,
+        model: 'gemini-1.5-flash',
+      );
+      _statusMessage = "Resumen: $summary";
+      notifyListeners();
+      await _tts.setLanguage("es-ES");
+      await _tts.setSpeechRate(0.55);
+      await _tts.speak(summary);
+    } catch (e) {
+      _errorMessage = "Error de resumen de audio: $e";
+      notifyListeners();
+    }
+  }
+
+  Uint8List _wrapPcmToWav(
+    Uint8List pcm, {
+    required int sampleRate,
+    required int channels,
+  }) {
+    final byteRate = sampleRate * channels * 2;
+    final blockAlign = channels * 2;
+    final dataSize = pcm.lengthInBytes;
+    final totalSize = 36 + dataSize;
+    final header = BytesBuilder();
+    header.add(utf8.encode('RIFF'));
+    header.add(_le32(totalSize));
+    header.add(utf8.encode('WAVE'));
+    header.add(utf8.encode('fmt '));
+    header.add(_le32(16));
+    header.add(_le16(1));
+    header.add(_le16(channels));
+    header.add(_le32(sampleRate));
+    header.add(_le32(byteRate));
+    header.add(_le16(blockAlign));
+    header.add(_le16(16));
+    header.add(utf8.encode('data'));
+    header.add(_le32(dataSize));
+    header.add(pcm);
+    return header.toBytes();
+  }
+
+  Uint8List _le16(int v) {
+    return Uint8List.fromList([v & 0xFF, (v >> 8) & 0xFF]);
+  }
+
+  Uint8List _le32(int v) {
+    return Uint8List.fromList([
+      v & 0xFF,
+      (v >> 8) & 0xFF,
+      (v >> 16) & 0xFF,
+      (v >> 24) & 0xFF,
+    ]);
+  }
+
+  Future<void> requestBackgroundPermissions() async {
+    await [
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.location,
+      Permission.notification,
+      Permission.microphone,
+    ].request();
   }
 }

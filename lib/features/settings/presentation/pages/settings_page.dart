@@ -115,6 +115,18 @@ class SettingsPage extends StatelessWidget {
                   },
                   child: const Text('Guardar y Aplicar'),
                 ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: () async {
+                    await vm.requestBackgroundPermissions();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Permisos de background solicitados'),
+                      ),
+                    );
+                  },
+                  child: const Text('Solicitar permisos de background'),
+                ),
               ],
             ),
           );

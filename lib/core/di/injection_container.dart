@@ -9,6 +9,8 @@ import '../../features/settings/domain/repositories/settings_repository.dart';
 import '../../features/settings/presentation/bloc/settings_bloc.dart';
 import '../../features/vision/domain/repositories/vision_repository.dart';
 import '../../features/vision/data/repositories/gemini_vision_repository.dart';
+import '../../features/audio/domain/repositories/audio_repository.dart';
+import '../../features/audio/data/repositories/gemini_audio_repository.dart';
 
 final sl = GetIt.instance;
 
@@ -20,6 +22,7 @@ Future<void> init() async {
       repository: sl(),
       settingsRepository: sl(),
       visionRepository: sl(),
+      audioRepository: sl(),
     ),
   );
 
@@ -44,4 +47,7 @@ Future<void> init() async {
 
   // Vision
   sl.registerLazySingleton<VisionRepository>(() => GeminiVisionRepository());
+
+  // Audio
+  sl.registerLazySingleton<AudioRepository>(() => GeminiAudioRepository());
 }

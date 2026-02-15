@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -7,34 +8,52 @@ import 'package:omi_glasses/features/bluetooth/domain/entities/bluetooth_device_
 import 'package:omi_glasses/features/settings/domain/repositories/settings_repository.dart';
 import 'package:omi_glasses/features/settings/domain/entities/app_settings.dart';
 import 'package:omi_glasses/features/vision/domain/repositories/vision_repository.dart';
+import 'package:omi_glasses/features/audio/domain/repositories/audio_repository.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class MockBluetoothRepository extends Mock implements BluetoothRepository {}
 
+class _FakeSettingsRepository implements SettingsRepository {
+  AppSettings _s = const AppSettings();
+  @override
+  Future<AppSettings> load() async {
+    return _s;
+  }
+
+  @override
+  Future<void> save(AppSettings settings) async {
+    _s = settings;
+  }
+}
+
+class _FakeVisionRepository implements VisionRepository {
+  @override
+  Future<String> describeImage({
+    required List<int> imageBytes,
+    required String apiKey,
+    String model = 'gemini-1.5-flash',
+  }) async {
+    return 'ok';
+  }
+}
+
+class _FakeAudioRepository implements AudioRepository {
+  @override
+  Future<String> transcribeAndSummarize({
+    required Uint8List wavBytes,
+    required String apiKey,
+    String model = 'gemini-1.5-flash',
+  }) async {
+    return 'resumen';
+  }
+}
+
 void main() {
   late BluetoothViewModel viewModel;
   late MockBluetoothRepository mockRepository;
-  // Minimal fake settings & vision repos to satisfy constructor
   late _FakeSettingsRepository fakeSettingsRepo;
   late _FakeVisionRepository fakeVisionRepo;
-
-  class _FakeSettingsRepository implements SettingsRepository {
-    AppSettings _s = const AppSettings();
-    @override
-    Future<void> persist(AppSettings s) async {
-      _s = s;
-    }
-    @override
-    Future<AppSettings> load() async {
-      return _s;
-    }
-  }
-  class _FakeVisionRepository implements VisionRepository {
-    @override
-    Future<String> describeImage({required List<int> imageBytes, required String apiKey, String model = 'gemini-1.5-flash'}) async {
-      return 'ok';
-    }
-  }
+  late _FakeAudioRepository fakeAudioRepo;
 
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -56,10 +75,12 @@ void main() {
     mockRepository = MockBluetoothRepository();
     fakeSettingsRepo = _FakeSettingsRepository();
     fakeVisionRepo = _FakeVisionRepository();
+    fakeAudioRepo = _FakeAudioRepository();
     viewModel = BluetoothViewModel(
       repository: mockRepository,
       settingsRepository: fakeSettingsRepo,
       visionRepository: fakeVisionRepo,
+      audioRepository: fakeAudioRepo,
     );
   });
 
