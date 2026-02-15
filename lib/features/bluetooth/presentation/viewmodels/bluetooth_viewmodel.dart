@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
+import 'package:omi_glasses/core/services/foreground_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:audio_session/audio_session.dart';
@@ -95,6 +96,8 @@ class BluetoothViewModel extends ChangeNotifier {
 
   String? _imageTransferStatus;
   String? get imageTransferStatus => _imageTransferStatus;
+  bool _photoJustSaved = false;
+  bool get photoJustSaved => _photoJustSaved;
 
   BluetoothViewModel({
     required this.repository,
@@ -219,6 +222,11 @@ class BluetoothViewModel extends ChangeNotifier {
         // Start monitoring battery automatically
         startBatteryListener();
 
+        // Auto-start audio if not set
+        if (_audioDeviceId == null) {
+          await setAudioSource(deviceId);
+        }
+
         // Auto-assign photo source if capable and not set yet
         if (_photoDeviceId == null) {
           final canPhoto = await repository.isPhotoCapable(deviceId);
@@ -229,6 +237,12 @@ class BluetoothViewModel extends ChangeNotifier {
       } catch (e) {
         debugPrint("Error discovering services: $e");
         _connectedDeviceServices = ["Error discovering services: $e"];
+      }
+
+      try {
+        await ForegroundService.ensureStarted(this);
+      } catch (e) {
+        debugPrint("Failed to start foreground service: $e");
       }
 
       _errorMessage = null;
@@ -692,6 +706,10 @@ class BluetoothViewModel extends ChangeNotifier {
     Duration interval = const Duration(seconds: 60),
   }) async {
     _photoDeviceId = deviceId;
+    try {
+      final s = await settingsRepository.load();
+      interval = Duration(seconds: s.photoIntervalSeconds);
+    } catch (_) {}
     // Start listening to images from the photo device
     startImageListenerFor(deviceId);
     // Restart timer
@@ -750,6 +768,9 @@ class BluetoothViewModel extends ChangeNotifier {
             imageBytes: imageBytes,
           );
           await photoRepository.save(entry);
+          _photoJustSaved = true;
+          _statusMessage = "Foto guardada";
+          notifyListeners();
         }
       } catch (e) {
         debugPrint("Failed to save photo entry: $e");
@@ -758,6 +779,11 @@ class BluetoothViewModel extends ChangeNotifier {
       _errorMessage = "Gemini/TTS error: $e";
       notifyListeners();
     }
+  }
+
+  void clearPhotoJustSaved() {
+    _photoJustSaved = false;
+    notifyListeners();
   }
 
   void _processAudioForSummary(Uint8List pcmBytes) {

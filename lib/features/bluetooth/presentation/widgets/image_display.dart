@@ -8,6 +8,14 @@ class ImageDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (viewModel.photoJustSaved) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto guardada en el tab Fotos')),
+        );
+        viewModel.clearPhotoJustSaved();
+      });
+    }
     return Column(
       children: [
         if (viewModel.imageTransferStatus != null)
