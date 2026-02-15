@@ -344,20 +344,26 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
       }
     }
 
-    final characteristic = service!.characteristics.firstWhere(
-      (c) => c.uuid.toString() == charUuid,
-      orElse: () {
-        // Fallback: pick first writable characteristic in this service
-        final fallback = service!.characteristics.firstWhere(
+    BluetoothCharacteristic characteristic;
+    try {
+      characteristic = service!.characteristics.firstWhere(
+        (c) => c.uuid.toString() == charUuid,
+      );
+    } catch (_) {
+      try {
+        characteristic = service!.characteristics.firstWhere(
           (c) => c.properties.write || c.properties.writeWithoutResponse,
-          orElse: () => throw Exception('Characteristic $charUuid not found'),
         );
         debugPrint(
-          "FALLBACK: Using writable characteristic ${fallback.uuid} in service $serviceUuid",
+          "FALLBACK: Using writable characteristic ${characteristic.uuid} in service $serviceUuid",
         );
-        return fallback;
-      },
-    );
+      } catch (_) {
+        characteristic = service!.characteristics.first;
+        debugPrint(
+          "FALLBACK: Using first available characteristic ${characteristic.uuid} in service $serviceUuid",
+        );
+      }
+    }
 
     debugPrint("Writing bytes to characteristic $charUuid: $value");
     await characteristic.write(value);
@@ -388,31 +394,26 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
       orElse: () => throw Exception('Service $serviceUuid not found'),
     );
 
-    final characteristic = service.characteristics.firstWhere(
-      (c) => c.uuid.toString() == charUuid,
-      orElse: () {
-        // Fallback to first notifiable characteristic
-        final fallback = service.characteristics.firstWhere(
+    BluetoothCharacteristic characteristic;
+    try {
+      characteristic = service.characteristics.firstWhere(
+        (c) => c.uuid.toString() == charUuid,
+      );
+    } catch (_) {
+      try {
+        characteristic = service.characteristics.firstWhere(
           (c) => c.properties.notify,
-          orElse: () {
-            final availableChars = service.characteristics
-                .map((c) => c.uuid.toString())
-                .toList();
-            debugPrint(
-              "CRITICAL ERROR: Characteristic $charUuid NOT found in service $serviceUuid",
-            );
-            debugPrint("Available Characteristics: $availableChars");
-            throw Exception(
-              'Characteristic $charUuid not found. Available: $availableChars',
-            );
-          },
         );
         debugPrint(
-          "FALLBACK: Using notifiable characteristic ${fallback.uuid} in service $serviceUuid",
+          "FALLBACK: Using notifiable characteristic ${characteristic.uuid} in service $serviceUuid",
         );
-        return fallback;
-      },
-    );
+      } catch (_) {
+        characteristic = service.characteristics.first;
+        debugPrint(
+          "FALLBACK: Using first available characteristic ${characteristic.uuid} in service $serviceUuid",
+        );
+      }
+    }
 
     debugPrint("Subscribing to characteristic $charUuid...");
 

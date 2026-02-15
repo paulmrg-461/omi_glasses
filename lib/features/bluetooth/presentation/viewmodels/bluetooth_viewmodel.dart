@@ -790,6 +790,17 @@ class BluetoothViewModel extends ChangeNotifier {
     });
   }
 
+  Future<void> summarizeNow() async {
+    if (_conversationPcm.isEmpty) {
+      _statusMessage = "No hay audio pendiente para resumir";
+      notifyListeners();
+      return;
+    }
+    await _summarizeConversation();
+    _conversationPcm.clear();
+    _lastVoiceTs = DateTime.now();
+  }
+
   Future<void> _summarizeConversation() async {
     try {
       final settings = await settingsRepository.load();

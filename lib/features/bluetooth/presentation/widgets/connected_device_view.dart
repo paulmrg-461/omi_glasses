@@ -29,6 +29,12 @@ class ConnectedDeviceView extends StatelessWidget {
           const Divider(),
           AudioControls(viewModel: viewModel),
           const SizedBox(height: 8),
+          ElevatedButton.icon(
+            onPressed: () => viewModel.summarizeNow(),
+            icon: const Icon(Icons.save),
+            label: const Text("Guardar resumen ahora"),
+          ),
+          const SizedBox(height: 8),
           ImageDisplay(viewModel: viewModel),
           const SizedBox(height: 32),
           Row(

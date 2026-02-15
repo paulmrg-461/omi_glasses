@@ -4,6 +4,25 @@ import 'package:http/http.dart' as http;
 import '../../domain/repositories/audio_repository.dart';
 
 class GeminiAudioRepository implements AudioRepository {
+  String _sanitizeJsonText(String text) {
+    var s = text.trim();
+    if (s.startsWith('```')) {
+      final end = s.lastIndexOf('```');
+      if (end > 0) {
+        s = s.substring(3, end).trim();
+        if (s.toLowerCase().startsWith('json')) {
+          s = s.substring(4).trim();
+        }
+      }
+    }
+    final startBrace = s.indexOf('{');
+    final endBrace = s.lastIndexOf('}');
+    if (startBrace >= 0 && endBrace >= startBrace) {
+      s = s.substring(startBrace, endBrace + 1);
+    }
+    return s;
+  }
+
   @override
   Future<String> transcribeAndSummarize({
     required Uint8List wavBytes,
@@ -86,17 +105,20 @@ class GeminiAudioRepository implements AudioRepository {
     final outText = candidates[0]['content']?['parts']?[0]?['text'];
     if (outText is String) {
       try {
-        final obj = jsonDecode(outText);
+        final cleaned = _sanitizeJsonText(outText);
+        final obj = jsonDecode(cleaned);
         final list = (obj['suggestions'] as List)
             .map((e) => e.toString())
             .toList();
-        return list;
+        return list
+            .map((e) => e.replaceAll('```', '').trim())
+            .where((e) => e.isNotEmpty && e.toLowerCase() != 'acento')
+            .toList();
       } catch (_) {
-        // If not valid JSON, split lines
         return outText
             .split('\n')
-            .map((l) => l.trim())
-            .where((l) => l.isNotEmpty)
+            .map((l) => l.replaceAll('```', '').trim())
+            .where((l) => l.isNotEmpty && l.toLowerCase() != 'acento')
             .toList();
       }
     }
