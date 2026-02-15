@@ -15,6 +15,9 @@ import '../../features/memory/domain/repositories/memory_repository.dart';
 import '../../features/memory/data/datasources/memory_local_data_source.dart';
 import '../../features/memory/data/repositories/memory_repository_impl.dart';
 import '../../features/audio/domain/repositories/audio_repository.dart' as audiodomain;
+import '../../features/photo/domain/repositories/photo_repository.dart';
+import '../../features/photo/data/datasources/photo_local_data_source.dart';
+import '../../features/photo/data/repositories/photo_repository_impl.dart';
 
 final sl = GetIt.instance;
 
@@ -28,6 +31,7 @@ Future<void> init() async {
       visionRepository: sl(),
       audioRepository: sl(),
       memoryRepository: sl(),
+      photoRepository: sl(),
     ),
   );
 
@@ -67,4 +71,12 @@ Future<void> init() async {
     () => MemoryRepositoryImpl(local: sl()),
   );
   await sl<MemoryLocalDataSource>().init();
+  // Photos
+  sl.registerLazySingleton<PhotoLocalDataSource>(
+    () => PhotoLocalDataSourceImpl(),
+  );
+  sl.registerLazySingleton<PhotoRepository>(
+    () => PhotoRepositoryImpl(local: sl()),
+  );
+  await sl<PhotoLocalDataSource>().init();
 }

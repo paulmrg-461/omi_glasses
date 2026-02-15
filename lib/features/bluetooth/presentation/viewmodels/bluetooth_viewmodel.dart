@@ -14,6 +14,8 @@ import '../../../vision/domain/repositories/vision_repository.dart';
 import '../../../audio/domain/repositories/audio_repository.dart';
 import '../../../memory/domain/repositories/memory_repository.dart';
 import '../../../memory/domain/entities/memory_entry.dart';
+import '../../../photo/domain/repositories/photo_repository.dart';
+import '../../../photo/domain/entities/photo_entry.dart';
 import '../../../audio/domain/repositories/audio_repository.dart'
     as audiodomain;
 
@@ -23,6 +25,7 @@ class BluetoothViewModel extends ChangeNotifier {
   final VisionRepository visionRepository;
   final AudioRepository audioRepository;
   final MemoryRepository memoryRepository;
+  final PhotoRepository photoRepository;
   final audiodomain.AudioRepositoryStructured _audioStructured =
       GetIt.instance<audiodomain.AudioRepositoryStructured>();
 
@@ -99,6 +102,7 @@ class BluetoothViewModel extends ChangeNotifier {
     required this.visionRepository,
     required this.audioRepository,
     required this.memoryRepository,
+    required this.photoRepository,
   });
 
   Future<void> startScan() async {
@@ -737,6 +741,19 @@ class BluetoothViewModel extends ChangeNotifier {
       await _tts.setLanguage("es-ES");
       await _tts.setSpeechRate(0.5);
       await _tts.speak(description);
+      try {
+        final deviceId = _selectedDevice?.id ?? _photoDeviceId ?? '';
+        if (deviceId.isNotEmpty) {
+          final entry = PhotoEntry.newFrom(
+            description: description,
+            sourceDeviceId: deviceId,
+            imageBytes: imageBytes,
+          );
+          await photoRepository.save(entry);
+        }
+      } catch (e) {
+        debugPrint("Failed to save photo entry: $e");
+      }
     } catch (e) {
       _errorMessage = "Gemini/TTS error: $e";
       notifyListeners();
