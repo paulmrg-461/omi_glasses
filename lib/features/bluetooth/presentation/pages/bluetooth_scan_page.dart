@@ -11,31 +11,12 @@ import '../widgets/loading_overlay.dart';
 import '../widgets/connected_devices_list.dart';
 
 class BluetoothScanPage extends StatelessWidget {
-  const BluetoothScanPage({super.key});
+  final bool showAppBar;
+  const BluetoothScanPage({super.key, this.showAppBar = true});
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('OMI Glasses'),
-        actions: [
-          IconButton(
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => BlocProvider(
-                    create: (_) => di.sl<SettingsBloc>()..add(LoadSettings()),
-                    child: const SettingsPage(),
-                  ),
-                ),
-              );
-            },
-            icon: const Icon(Icons.settings),
-          ),
-        ],
-      ),
-      body: Consumer<BluetoothViewModel>(
+    final content = Consumer<BluetoothViewModel>(
         builder: (context, viewModel, child) {
           // If a device is explicitly selected, show its control view
           if (viewModel.connectedDevice != null) {
@@ -71,7 +52,31 @@ class BluetoothScanPage extends StatelessWidget {
             ],
           );
         },
+      );
+    if (!showAppBar) {
+      return Scaffold(body: content);
+    }
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('OMI Glasses'),
+        actions: [
+          IconButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => BlocProvider(
+                    create: (_) => di.sl<SettingsBloc>()..add(LoadSettings()),
+                    child: const SettingsPage(),
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.settings),
+          ),
+        ],
       ),
+      body: content,
     );
   }
 }

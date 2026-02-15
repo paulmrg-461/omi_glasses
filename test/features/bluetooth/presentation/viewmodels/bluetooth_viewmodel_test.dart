@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:omi_glasses/features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import 'package:omi_glasses/features/bluetooth/presentation/viewmodels/bluetooth_viewmodel.dart';
-import 'package:omi_glasses/features/bluetooth/domain/entities/bluetooth_device_entity.dart';
 import 'package:omi_glasses/features/settings/domain/repositories/settings_repository.dart';
 import 'package:omi_glasses/features/settings/domain/entities/app_settings.dart';
 import 'package:omi_glasses/features/vision/domain/repositories/vision_repository.dart';
@@ -83,10 +82,8 @@ class _FakeMemoryRepository implements MemoryRepository {
     store.add(entry);
   }
 
-void main() {
-}
+ 
 
-  late BluetoothViewModel viewModel;
   late BluetoothViewModel viewModel;
   late MockBluetoothRepository mockRepository;
   late _FakeSettingsRepository fakeSettingsRepo;

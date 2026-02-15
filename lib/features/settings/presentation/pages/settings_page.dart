@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:provider/provider.dart';
 import '../../../bluetooth/presentation/viewmodels/bluetooth_viewmodel.dart';
 import '../../domain/entities/app_settings.dart';
 import '../bloc/settings_bloc.dart';
@@ -8,7 +9,7 @@ class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
   @override
   Widget build(BuildContext context) {
-    final vm = context.read<BluetoothViewModel>();
+    final vm = context.watch<BluetoothViewModel>();
     return Scaffold(
       appBar: AppBar(title: const Text('Configuración')),
       body: BlocBuilder<SettingsBloc, SettingsState>(
