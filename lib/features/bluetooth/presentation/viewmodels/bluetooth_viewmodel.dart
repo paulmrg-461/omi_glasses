@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:get_it/get_it.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:audio_session/audio_session.dart';
@@ -11,12 +12,19 @@ import '../../domain/repositories/bluetooth_repository.dart';
 import '../../../settings/domain/repositories/settings_repository.dart';
 import '../../../vision/domain/repositories/vision_repository.dart';
 import '../../../audio/domain/repositories/audio_repository.dart';
+import '../../../memory/domain/repositories/memory_repository.dart';
+import '../../../memory/domain/entities/memory_entry.dart';
+import '../../../audio/domain/repositories/audio_repository.dart'
+    as audiodomain;
 
 class BluetoothViewModel extends ChangeNotifier {
   final BluetoothRepository repository;
   final SettingsRepository settingsRepository;
   final VisionRepository visionRepository;
   final AudioRepository audioRepository;
+  final MemoryRepository memoryRepository;
+  final audiodomain.AudioRepositoryStructured _audioStructured =
+      GetIt.instance<audiodomain.AudioRepositoryStructured>();
 
   List<BluetoothDeviceEntity> _devices = [];
   List<BluetoothDeviceEntity> get devices => _devices;
@@ -90,6 +98,7 @@ class BluetoothViewModel extends ChangeNotifier {
     required this.settingsRepository,
     required this.visionRepository,
     required this.audioRepository,
+    required this.memoryRepository,
   });
 
   Future<void> startScan() async {
@@ -721,7 +730,7 @@ class BluetoothViewModel extends ChangeNotifier {
       final description = await visionRepository.describeImage(
         imageBytes: imageBytes,
         apiKey: key,
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
       );
       _statusMessage = "Descripción: $description";
       notifyListeners();
@@ -778,16 +787,36 @@ class BluetoothViewModel extends ChangeNotifier {
         sampleRate: 16000,
         channels: 1,
       );
-      final summary = await audioRepository.transcribeAndSummarize(
-        wavBytes: wav,
+      final structured = await _audioStructured
+          .transcribeAndSummarizeStructured(
+            wavBytes: wav,
+            apiKey: key,
+            model: 'gemini-2.5-flash',
+          );
+      final summary = structured.summary;
+      final transcript = structured.transcript;
+      final suggestions = await audioRepository.generateSuggestionsFromText(
+        text: "$summary\n$transcript",
         apiKey: key,
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
       );
+      final entry = MemoryEntry(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        timestamp: DateTime.now(),
+        sourceDeviceId: _audioDeviceId ?? _selectedDevice?.id ?? '',
+        transcript: transcript,
+        summary: summary,
+        suggestions: suggestions,
+      );
+      await memoryRepository.save(entry);
       _statusMessage = "Resumen: $summary";
       notifyListeners();
       await _tts.setLanguage("es-ES");
       await _tts.setSpeechRate(0.55);
-      await _tts.speak(summary);
+      final spoken = suggestions.isNotEmpty
+          ? "$summary. Sugerencias: ${suggestions.join('; ')}"
+          : summary;
+      await _tts.speak(spoken);
     } catch (e) {
       _errorMessage = "Error de resumen de audio: $e";
       notifyListeners();

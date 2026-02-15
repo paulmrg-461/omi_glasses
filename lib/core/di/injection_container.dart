@@ -11,6 +11,10 @@ import '../../features/vision/domain/repositories/vision_repository.dart';
 import '../../features/vision/data/repositories/gemini_vision_repository.dart';
 import '../../features/audio/domain/repositories/audio_repository.dart';
 import '../../features/audio/data/repositories/gemini_audio_repository.dart';
+import '../../features/memory/domain/repositories/memory_repository.dart';
+import '../../features/memory/data/datasources/memory_local_data_source.dart';
+import '../../features/memory/data/repositories/memory_repository_impl.dart';
+import '../../features/audio/domain/repositories/audio_repository.dart' as audiodomain;
 
 final sl = GetIt.instance;
 
@@ -23,6 +27,7 @@ Future<void> init() async {
       settingsRepository: sl(),
       visionRepository: sl(),
       audioRepository: sl(),
+      memoryRepository: sl(),
     ),
   );
 
@@ -50,4 +55,16 @@ Future<void> init() async {
 
   // Audio
   sl.registerLazySingleton<AudioRepository>(() => GeminiAudioRepository());
+  sl.registerLazySingleton<audiodomain.AudioRepositoryStructured>(
+    () => GeminiAudioRepositoryStructured(),
+  );
+
+  // Memory
+  sl.registerLazySingleton<MemoryLocalDataSource>(
+    () => MemoryLocalDataSourceImpl(),
+  );
+  sl.registerLazySingleton<MemoryRepository>(
+    () => MemoryRepositoryImpl(local: sl()),
+  );
+  await sl<MemoryLocalDataSource>().init();
 }

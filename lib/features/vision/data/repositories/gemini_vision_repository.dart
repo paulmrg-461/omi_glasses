@@ -7,7 +7,7 @@ class GeminiVisionRepository implements VisionRepository {
   Future<String> describeImage({
     required List<int> imageBytes,
     required String apiKey,
-    String model = 'gemini-1.5-flash',
+    String model = 'gemini-2.5-flash',
   }) async {
     final uri = Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey',

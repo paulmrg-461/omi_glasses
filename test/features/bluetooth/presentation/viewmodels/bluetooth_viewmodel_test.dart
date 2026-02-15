@@ -9,6 +9,9 @@ import 'package:omi_glasses/features/settings/domain/repositories/settings_repos
 import 'package:omi_glasses/features/settings/domain/entities/app_settings.dart';
 import 'package:omi_glasses/features/vision/domain/repositories/vision_repository.dart';
 import 'package:omi_glasses/features/audio/domain/repositories/audio_repository.dart';
+import 'package:omi_glasses/features/memory/domain/repositories/memory_repository.dart';
+import 'package:omi_glasses/features/memory/domain/entities/memory_entry.dart';
+import 'package:omi_glasses/features/audio/domain/repositories/audio_repository.dart' as audiodomain;
 import 'package:permission_handler/permission_handler.dart';
 
 class MockBluetoothRepository extends Mock implements BluetoothRepository {}
@@ -31,7 +34,7 @@ class _FakeVisionRepository implements VisionRepository {
   Future<String> describeImage({
     required List<int> imageBytes,
     required String apiKey,
-    String model = 'gemini-1.5-flash',
+    String model = 'gemini-2.5-flash',
   }) async {
     return 'ok';
   }
@@ -42,18 +45,55 @@ class _FakeAudioRepository implements AudioRepository {
   Future<String> transcribeAndSummarize({
     required Uint8List wavBytes,
     required String apiKey,
-    String model = 'gemini-1.5-flash',
+    String model = 'gemini-2.5-flash',
   }) async {
     return 'resumen';
   }
+
+  @override
+  Future<List<String>> generateSuggestionsFromText({
+    required String text,
+    required String apiKey,
+    String model = 'gemini-2.5-flash',
+  }) async {
+    return ['Acción 1', 'Acción 2'];
+  }
 }
 
+class _FakeAudioRepositoryStructured implements audiodomain.AudioRepositoryStructured {
+  @override
+  Future<audiodomain.TranscriptionResult> transcribeAndSummarizeStructured({
+    required Uint8List wavBytes,
+    required String apiKey,
+    String model = 'gemini-2.5-flash',
+  }) async {
+    return audiodomain.TranscriptionResult(transcript: 'texto', summary: 'resumen');
+  }
+}
+
+class _FakeMemoryRepository implements MemoryRepository {
+  final List<MemoryEntry> store = [];
+  @override
+  Future<List<MemoryEntry>> list({int? limit}) async {
+    return store;
+  }
+
+  @override
+  Future<void> save(MemoryEntry entry) async {
+    store.add(entry);
+  }
+
 void main() {
+}
+
+  late BluetoothViewModel viewModel;
   late BluetoothViewModel viewModel;
   late MockBluetoothRepository mockRepository;
   late _FakeSettingsRepository fakeSettingsRepo;
   late _FakeVisionRepository fakeVisionRepo;
   late _FakeAudioRepository fakeAudioRepo;
+  late _FakeMemoryRepository fakeMemoryRepo;
+  late _FakeAudioRepositoryStructured fakeAudioRepoStructured;
 
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -76,11 +116,14 @@ void main() {
     fakeSettingsRepo = _FakeSettingsRepository();
     fakeVisionRepo = _FakeVisionRepository();
     fakeAudioRepo = _FakeAudioRepository();
+    fakeMemoryRepo = _FakeMemoryRepository();
+    fakeAudioRepoStructured = _FakeAudioRepositoryStructured();
     viewModel = BluetoothViewModel(
       repository: mockRepository,
       settingsRepository: fakeSettingsRepo,
       visionRepository: fakeVisionRepo,
       audioRepository: fakeAudioRepo,
+      memoryRepository: fakeMemoryRepo,
     );
   });
 
