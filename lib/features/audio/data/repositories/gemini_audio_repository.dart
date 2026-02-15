@@ -105,6 +105,25 @@ class GeminiAudioRepository implements AudioRepository {
 }
 
 class GeminiAudioRepositoryStructured implements AudioRepositoryStructured {
+  String _sanitizeJsonText(String text) {
+    var s = text.trim();
+    if (s.startsWith('```')) {
+      final end = s.lastIndexOf('```');
+      if (end > 0) {
+        s = s.substring(3, end).trim();
+        if (s.toLowerCase().startsWith('json')) {
+          s = s.substring(4).trim();
+        }
+      }
+    }
+    final startBrace = s.indexOf('{');
+    final endBrace = s.lastIndexOf('}');
+    if (startBrace >= 0 && endBrace >= startBrace) {
+      s = s.substring(startBrace, endBrace + 1);
+    }
+    return s;
+  }
+
   @override
   Future<TranscriptionResult> transcribeAndSummarizeStructured({
     required Uint8List wavBytes,
@@ -148,7 +167,8 @@ class GeminiAudioRepositoryStructured implements AudioRepositoryStructured {
     final text = candidates[0]['content']?['parts']?[0]?['text'];
     if (text is String) {
       try {
-        final obj = jsonDecode(text);
+        final cleaned = _sanitizeJsonText(text);
+        final obj = jsonDecode(cleaned);
         final t = obj['transcript']?.toString() ?? '';
         final s = obj['summary']?.toString() ?? '';
         return TranscriptionResult(transcript: t, summary: s);
