@@ -1,4 +1,3 @@
-import 'dart:isolate';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../../features/bluetooth/presentation/viewmodels/bluetooth_viewmodel.dart';
 
@@ -21,8 +20,8 @@ class _PeriodicTaskHandler extends TaskHandler {
 }
 
 class ForegroundService {
-  static ReceivePort? _port;
   static bool _initialized = false;
+  static bool _callbackRegistered = false;
 
   static Future<void> ensureStarted(BluetoothViewModel vm) async {
     if (!_initialized) {
@@ -48,9 +47,8 @@ class ForegroundService {
       _initialized = true;
     }
 
-    if (_port == null) {
-      _port = FlutterForegroundTask.receivePort;
-      _port?.listen((data) {
+    if (!_callbackRegistered) {
+      FlutterForegroundTask.addTaskDataCallback((Object data) {
         if (data == 'tick') {
           if (!vm.isAudioEnabled && vm.connectedDevice != null) {
             vm.startAudio();
@@ -61,6 +59,7 @@ class ForegroundService {
           }
         }
       });
+      _callbackRegistered = true;
     }
 
     await FlutterForegroundTask.startService(
@@ -71,6 +70,10 @@ class ForegroundService {
   }
 
   static Future<void> stop() async {
+    if (_callbackRegistered) {
+      FlutterForegroundTask.removeTaskDataCallback((_) {});
+      _callbackRegistered = false;
+    }
     await FlutterForegroundTask.stopService();
   }
 }
