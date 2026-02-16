@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/di/injection_container.dart' as di;
-import 'features/bluetooth/presentation/pages/bluetooth_scan_page.dart';
 import 'features/bluetooth/presentation/viewmodels/bluetooth_viewmodel.dart';
+import 'features/app/presentation/pages/app_tabs_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +25,7 @@ class MyApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
           useMaterial3: true,
         ),
-        home: const BluetoothScanPage(),
+        home: const AppTabsPage(),
       ),
     );
   }

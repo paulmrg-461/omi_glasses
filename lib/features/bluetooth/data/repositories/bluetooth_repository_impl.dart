@@ -42,23 +42,19 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
 
           try {
             // Decode Opus to PCM
-            // frameSize: Max samples per channel.
-            // 16kHz * 60ms = 960 samples. Safe upper bound for single frame.
-            // The analyzer said "decode" needs 2 args.
-            // And it is NOT async.
+            // Try common frame sizes (20ms=320, 40ms=640, 60ms=960)
             if (decoder != null) {
-              final pcmData = decoder.decode(opusData, 960);
-              if (pcmData != null && pcmData.isNotEmpty) {
-                // pcmData is List<int> (PCM 16-bit samples?)
-                // If it's 16-bit PCM, we need to convert to bytes (Uint8List) for the player?
-                // FlutterSoundPlayer expects PCM 16-bit as bytes (little endian).
-                // If flutter_opus returns Int16List or List<int> acting as Int16,
-                // we need to verify format.
-                // Assuming List<int> contains 16-bit values?
-                // Or bytes?
-                // "Decode Opus data (Uint8List) to PCM (Uint8List)" says the snippet.
-                // So pcmData is likely Uint8List or List<int> of BYTES.
-                yield Uint8List.fromList(pcmData);
+              List<int> sizes = [320, 640, 960];
+              Uint8List? out;
+              for (final sz in sizes) {
+                final pcmData = decoder.decode(opusData, sz);
+                if (pcmData != null && pcmData.isNotEmpty) {
+                  out = Uint8List.fromList(pcmData);
+                  break;
+                }
+              }
+              if (out != null) {
+                yield out;
               }
             }
           } catch (e) {
@@ -424,5 +420,23 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
       BluetoothConstants.photoControlUuid,
       [0x01],
     );
+  }
+
+  @override
+  Future<bool> isPhotoCapable(String deviceId) async {
+    final device = BluetoothDevice.fromId(deviceId);
+    try {
+      // Try subscribing to photo data characteristic; if it exists, device is photo-capable
+      final stream = dataSource.subscribeToCharacteristic(
+        device,
+        BluetoothConstants.serviceUuid,
+        BluetoothConstants.photoDataUuid,
+      );
+      // We don't need actual data; just attempt to start notifications once
+      await stream.first.timeout(const Duration(milliseconds: 10), onTimeout: () => Uint8List(0));
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }

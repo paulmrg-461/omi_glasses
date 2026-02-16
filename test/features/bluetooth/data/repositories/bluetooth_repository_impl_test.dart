@@ -29,13 +29,19 @@ void main() {
   group('BluetoothRepositoryImpl', () {
     test('startScan calls dataSource.startScan', () async {
       when(
-        () => mockDataSource.startScan(timeout: any(named: 'timeout')),
+        () => mockDataSource.startScan(
+          timeout: any(named: 'timeout'),
+          withServices: any(named: 'withServices'),
+        ),
       ).thenAnswer((_) async {});
 
       await repository.startScan();
 
       verify(
-        () => mockDataSource.startScan(timeout: any(named: 'timeout')),
+        () => mockDataSource.startScan(
+          timeout: any(named: 'timeout'),
+          withServices: any(named: 'withServices'),
+        ),
       ).called(1);
     });
 

@@ -43,6 +43,14 @@ dependencies:
   flutter_opus: ^1.0.4
   flutter_sound: ^9.0.0
   audio_session: ^0.1.21
+  shared_preferences: ^2.2.3
+  bloc: ^8.1.2
+  flutter_bloc: ^8.1.2
+  flutter_tts: ^3.8.3
+  http: ^0.13.6
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  flutter_foreground_task: ^9.2.0
 
 dev_dependencies:
   flutter_test:

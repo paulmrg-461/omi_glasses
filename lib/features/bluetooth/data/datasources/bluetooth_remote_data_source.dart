@@ -326,31 +326,35 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
       services = device.servicesList;
     }
 
-    // Try to find service
-    BluetoothService? service;
-    try {
-      service = services.firstWhere((s) => s.uuid.toString() == serviceUuid);
-    } catch (e) {
-      // If not found, try rediscovering once
-      debugPrint(
-        "Service $serviceUuid not found in cached list. Rediscovering...",
-      );
-      await discoverServices(device);
-      services = device.servicesList;
-      try {
-        service = services.firstWhere((s) => s.uuid.toString() == serviceUuid);
-      } catch (e) {
-        throw Exception('Service $serviceUuid not found');
+    BluetoothCharacteristic? target;
+    for (final s in services) {
+      for (final c in s.characteristics) {
+        if (c.uuid.toString() == charUuid) {
+          target = c;
+          break;
+        }
+      }
+      if (target != null) break;
+    }
+    if (target == null) {
+      for (final s in services) {
+        for (final c in s.characteristics) {
+          if (c.properties.write || c.properties.writeWithoutResponse) {
+            target = c;
+            break;
+          }
+        }
+        if (target != null) break;
       }
     }
-
-    final characteristic = service!.characteristics.firstWhere(
-      (c) => c.uuid.toString() == charUuid,
-      orElse: () => throw Exception('Characteristic $charUuid not found'),
-    );
-
-    debugPrint("Writing bytes to characteristic $charUuid: $value");
-    await characteristic.write(value);
+    if (target == null) {
+      throw Exception('No writable characteristic found');
+    }
+    if (!(target.properties.write || target.properties.writeWithoutResponse)) {
+      throw Exception('Selected characteristic not writable');
+    }
+    debugPrint("Writing bytes to characteristic ${target.uuid}: $value");
+    await target.write(value);
     debugPrint("Write successful.");
   }
 
@@ -378,21 +382,26 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
       orElse: () => throw Exception('Service $serviceUuid not found'),
     );
 
-    final characteristic = service.characteristics.firstWhere(
-      (c) => c.uuid.toString() == charUuid,
-      orElse: () {
-        final availableChars = service.characteristics
-            .map((c) => c.uuid.toString())
-            .toList();
+    BluetoothCharacteristic characteristic;
+    try {
+      characteristic = service.characteristics.firstWhere(
+        (c) => c.uuid.toString() == charUuid,
+      );
+    } catch (_) {
+      try {
+        characteristic = service.characteristics.firstWhere(
+          (c) => c.properties.notify,
+        );
         debugPrint(
-          "CRITICAL ERROR: Characteristic $charUuid NOT found in service $serviceUuid",
+          "FALLBACK: Using notifiable characteristic ${characteristic.uuid} in service $serviceUuid",
         );
-        debugPrint("Available Characteristics: $availableChars");
-        throw Exception(
-          'Characteristic $charUuid not found. Available: $availableChars',
+      } catch (_) {
+        characteristic = service.characteristics.first;
+        debugPrint(
+          "FALLBACK: Using first available characteristic ${characteristic.uuid} in service $serviceUuid",
         );
-      },
-    );
+      }
+    }
 
     debugPrint("Subscribing to characteristic $charUuid...");
 

@@ -1,16 +1,96 @@
+import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:omi_glasses/features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import 'package:omi_glasses/features/bluetooth/presentation/viewmodels/bluetooth_viewmodel.dart';
-import 'package:omi_glasses/features/bluetooth/domain/entities/bluetooth_device_entity.dart';
+import 'package:omi_glasses/features/settings/domain/repositories/settings_repository.dart';
+import 'package:omi_glasses/features/settings/domain/entities/app_settings.dart';
+import 'package:omi_glasses/features/vision/domain/repositories/vision_repository.dart';
+import 'package:omi_glasses/features/audio/domain/repositories/audio_repository.dart';
+import 'package:omi_glasses/features/memory/domain/repositories/memory_repository.dart';
+import 'package:omi_glasses/features/memory/domain/entities/memory_entry.dart';
+import 'package:omi_glasses/features/audio/domain/repositories/audio_repository.dart' as audiodomain;
 import 'package:permission_handler/permission_handler.dart';
 
 class MockBluetoothRepository extends Mock implements BluetoothRepository {}
 
-void main() {
+class _FakeSettingsRepository implements SettingsRepository {
+  AppSettings _s = const AppSettings();
+  @override
+  Future<AppSettings> load() async {
+    return _s;
+  }
+
+  @override
+  Future<void> save(AppSettings settings) async {
+    _s = settings;
+  }
+}
+
+class _FakeVisionRepository implements VisionRepository {
+  @override
+  Future<String> describeImage({
+    required List<int> imageBytes,
+    required String apiKey,
+    String model = 'gemini-2.5-flash',
+  }) async {
+    return 'ok';
+  }
+}
+
+class _FakeAudioRepository implements AudioRepository {
+  @override
+  Future<String> transcribeAndSummarize({
+    required Uint8List wavBytes,
+    required String apiKey,
+    String model = 'gemini-2.5-flash',
+  }) async {
+    return 'resumen';
+  }
+
+  @override
+  Future<List<String>> generateSuggestionsFromText({
+    required String text,
+    required String apiKey,
+    String model = 'gemini-2.5-flash',
+  }) async {
+    return ['Acción 1', 'Acción 2'];
+  }
+}
+
+class _FakeAudioRepositoryStructured implements audiodomain.AudioRepositoryStructured {
+  @override
+  Future<audiodomain.TranscriptionResult> transcribeAndSummarizeStructured({
+    required Uint8List wavBytes,
+    required String apiKey,
+    String model = 'gemini-2.5-flash',
+  }) async {
+    return audiodomain.TranscriptionResult(transcript: 'texto', summary: 'resumen');
+  }
+}
+
+class _FakeMemoryRepository implements MemoryRepository {
+  final List<MemoryEntry> store = [];
+  @override
+  Future<List<MemoryEntry>> list({int? limit}) async {
+    return store;
+  }
+
+  @override
+  Future<void> save(MemoryEntry entry) async {
+    store.add(entry);
+  }
+
+ 
+
   late BluetoothViewModel viewModel;
   late MockBluetoothRepository mockRepository;
+  late _FakeSettingsRepository fakeSettingsRepo;
+  late _FakeVisionRepository fakeVisionRepo;
+  late _FakeAudioRepository fakeAudioRepo;
+  late _FakeMemoryRepository fakeMemoryRepo;
+  late _FakeAudioRepositoryStructured fakeAudioRepoStructured;
 
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -30,7 +110,18 @@ void main() {
         });
 
     mockRepository = MockBluetoothRepository();
-    viewModel = BluetoothViewModel(repository: mockRepository);
+    fakeSettingsRepo = _FakeSettingsRepository();
+    fakeVisionRepo = _FakeVisionRepository();
+    fakeAudioRepo = _FakeAudioRepository();
+    fakeMemoryRepo = _FakeMemoryRepository();
+    fakeAudioRepoStructured = _FakeAudioRepositoryStructured();
+    viewModel = BluetoothViewModel(
+      repository: mockRepository,
+      settingsRepository: fakeSettingsRepo,
+      visionRepository: fakeVisionRepo,
+      audioRepository: fakeAudioRepo,
+      memoryRepository: fakeMemoryRepo,
+    );
   });
 
   test('startScan calls repository.startScan', () async {
