@@ -1,17 +1,21 @@
-import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:omi_glasses/features/bluetooth/domain/repositories/bluetooth_repository.dart';
 import 'package:omi_glasses/features/bluetooth/presentation/viewmodels/bluetooth_viewmodel.dart';
+import 'package:omi_glasses/features/bluetooth/domain/entities/bluetooth_device_entity.dart';
 import 'package:omi_glasses/features/settings/domain/repositories/settings_repository.dart';
 import 'package:omi_glasses/features/settings/domain/entities/app_settings.dart';
 import 'package:omi_glasses/features/vision/domain/repositories/vision_repository.dart';
 import 'package:omi_glasses/features/audio/domain/repositories/audio_repository.dart';
 import 'package:omi_glasses/features/memory/domain/repositories/memory_repository.dart';
 import 'package:omi_glasses/features/memory/domain/entities/memory_entry.dart';
-import 'package:omi_glasses/features/audio/domain/repositories/audio_repository.dart' as audiodomain;
+import 'package:omi_glasses/features/audio/domain/repositories/audio_repository.dart'
+    as audiodomain;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:get_it/get_it.dart';
+import 'package:omi_glasses/features/photo/domain/repositories/photo_repository.dart';
+import 'package:omi_glasses/features/photo/domain/entities/photo_entry.dart';
 
 class MockBluetoothRepository extends Mock implements BluetoothRepository {}
 
@@ -59,14 +63,18 @@ class _FakeAudioRepository implements AudioRepository {
   }
 }
 
-class _FakeAudioRepositoryStructured implements audiodomain.AudioRepositoryStructured {
+class _FakeAudioRepositoryStructured
+    implements audiodomain.AudioRepositoryStructured {
   @override
   Future<audiodomain.TranscriptionResult> transcribeAndSummarizeStructured({
     required Uint8List wavBytes,
     required String apiKey,
     String model = 'gemini-2.5-flash',
   }) async {
-    return audiodomain.TranscriptionResult(transcript: 'texto', summary: 'resumen');
+    return audiodomain.TranscriptionResult(
+      transcript: 'texto',
+      summary: 'resumen',
+    );
   }
 }
 
@@ -81,9 +89,27 @@ class _FakeMemoryRepository implements MemoryRepository {
   Future<void> save(MemoryEntry entry) async {
     store.add(entry);
   }
+}
 
- 
+class _FakePhotoRepository implements PhotoRepository {
+  final List<PhotoEntry> store = [];
+  @override
+  Future<void> save(PhotoEntry entry) async {
+    store.add(entry);
+  }
 
+  @override
+  Future<List<PhotoEntry>> list({int? limit}) async {
+    return store;
+  }
+
+  @override
+  Future<void> clear() async {
+    store.clear();
+  }
+}
+
+void main() {
   late BluetoothViewModel viewModel;
   late MockBluetoothRepository mockRepository;
   late _FakeSettingsRepository fakeSettingsRepo;
@@ -91,11 +117,11 @@ class _FakeMemoryRepository implements MemoryRepository {
   late _FakeAudioRepository fakeAudioRepo;
   late _FakeMemoryRepository fakeMemoryRepo;
   late _FakeAudioRepositoryStructured fakeAudioRepoStructured;
+  late _FakePhotoRepository fakePhotoRepo;
 
   setUp(() {
     TestWidgetsFlutterBinding.ensureInitialized();
 
-    // Mock Permission Handler Channel
     const channel = MethodChannel('flutter.baseflow.com/permissions/methods');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
@@ -115,12 +141,22 @@ class _FakeMemoryRepository implements MemoryRepository {
     fakeAudioRepo = _FakeAudioRepository();
     fakeMemoryRepo = _FakeMemoryRepository();
     fakeAudioRepoStructured = _FakeAudioRepositoryStructured();
+    fakePhotoRepo = _FakePhotoRepository();
+
+    final getIt = GetIt.instance;
+    if (!getIt.isRegistered<audiodomain.AudioRepositoryStructured>()) {
+      getIt.registerSingleton<audiodomain.AudioRepositoryStructured>(
+        fakeAudioRepoStructured,
+      );
+    }
+
     viewModel = BluetoothViewModel(
       repository: mockRepository,
       settingsRepository: fakeSettingsRepo,
       visionRepository: fakeVisionRepo,
       audioRepository: fakeAudioRepo,
       memoryRepository: fakeMemoryRepo,
+      photoRepository: fakePhotoRepo,
     );
   });
 
@@ -138,11 +174,21 @@ class _FakeMemoryRepository implements MemoryRepository {
     when(() => mockRepository.connect(deviceId)).thenAnswer((_) async {});
     when(() => mockRepository.stopScan()).thenAnswer((_) async {});
     when(
+      () => mockRepository.monitorBatteryLevel(deviceId),
+    ).thenAnswer((_) => Stream.value(50));
+    when(
+      () => mockRepository.isPhotoCapable(deviceId),
+    ).thenAnswer((_) async => false);
+    when(
+      () => mockRepository.startAudioStream(deviceId),
+    ).thenAnswer((_) => Stream<Uint8List>.empty());
+    when(
+      () => mockRepository.stopAudioStream(deviceId),
+    ).thenAnswer((_) async {});
+    when(
       () => mockRepository.discoverServices(deviceId),
     ).thenAnswer((_) async => ['00001800-0000-1000-8000-00805f9b34fb']);
 
-    // Simulate scanning state if we want to test stopScan
-    // But initially isScanning is false, so it should just call connect
     await viewModel.connect(deviceId);
 
     verify(() => mockRepository.connect(deviceId)).called(1);
@@ -150,17 +196,130 @@ class _FakeMemoryRepository implements MemoryRepository {
     verifyNever(() => mockRepository.stopScan());
   });
 
+  test(
+    'autoReconnectFromSettings connects to audio device from settings',
+    () async {
+      const deviceId = 'audio_device_id';
+      fakeSettingsRepo._s = const AppSettings(audioDeviceId: deviceId);
+
+      when(() => mockRepository.startScan()).thenAnswer((_) async {});
+      when(() => mockRepository.scanResults).thenAnswer(
+        (_) => Stream.value([
+          BluetoothDeviceEntity(
+            id: deviceId,
+            name: 'Device',
+            rssi: -50,
+            serviceUuids: const [],
+          ),
+        ]),
+      );
+      when(() => mockRepository.stopScan()).thenAnswer((_) async {});
+      when(
+        () => mockRepository.isBluetoothEnabled,
+      ).thenAnswer((_) async => true);
+      when(() => mockRepository.connect(deviceId)).thenAnswer((_) async {});
+      when(
+        () => mockRepository.discoverServices(deviceId),
+      ).thenAnswer((_) async => []);
+      when(
+        () => mockRepository.monitorBatteryLevel(deviceId),
+      ).thenAnswer((_) => Stream<int>.empty());
+      when(
+        () => mockRepository.isPhotoCapable(deviceId),
+      ).thenAnswer((_) async => false);
+      when(
+        () => mockRepository.startAudioStream(deviceId),
+      ).thenAnswer((_) => Stream<Uint8List>.empty());
+      when(
+        () => mockRepository.stopAudioStream(deviceId),
+      ).thenAnswer((_) async {});
+
+      await viewModel.autoReconnectFromSettings();
+
+      verify(() => mockRepository.startScan()).called(1);
+      verify(() => mockRepository.connect(deviceId)).called(1);
+    },
+  );
+
+  test(
+    'autoReconnectFromSettings connects to both audio and photo devices when present',
+    () async {
+      const audioId = 'audio_device_id';
+      const photoId = 'photo_device_id';
+      fakeSettingsRepo._s = const AppSettings(
+        audioDeviceId: audioId,
+        photoDeviceId: photoId,
+      );
+
+      when(() => mockRepository.startScan()).thenAnswer((_) async {});
+      when(() => mockRepository.scanResults).thenAnswer(
+        (_) => Stream.value([
+          BluetoothDeviceEntity(
+            id: audioId,
+            name: 'Audio',
+            rssi: -40,
+            serviceUuids: const [],
+          ),
+          BluetoothDeviceEntity(
+            id: photoId,
+            name: 'Photo',
+            rssi: -45,
+            serviceUuids: const [],
+          ),
+        ]),
+      );
+      when(() => mockRepository.stopScan()).thenAnswer((_) async {});
+      when(
+        () => mockRepository.isBluetoothEnabled,
+      ).thenAnswer((_) async => true);
+
+      when(() => mockRepository.connect(any())).thenAnswer((_) async {});
+      when(
+        () => mockRepository.discoverServices(any()),
+      ).thenAnswer((_) async => []);
+      when(
+        () => mockRepository.monitorBatteryLevel(any()),
+      ).thenAnswer((_) => Stream<int>.empty());
+      when(
+        () => mockRepository.isPhotoCapable(any()),
+      ).thenAnswer((_) async => true);
+      when(
+        () => mockRepository.startAudioStream(any()),
+      ).thenAnswer((_) => Stream<Uint8List>.empty());
+      when(
+        () => mockRepository.stopAudioStream(any()),
+      ).thenAnswer((_) async {});
+
+      await viewModel.autoReconnectFromSettings();
+
+      verify(() => mockRepository.startScan()).called(1);
+      verify(() => mockRepository.connect(audioId)).called(1);
+      verify(() => mockRepository.connect(photoId)).called(1);
+    },
+  );
+
   group('setupWifi', () {
     const deviceId = 'test_device_id';
     const ssid = 'ssid';
     const password = 'pass';
 
     setUp(() async {
-      // Establish a connection first
       when(() => mockRepository.connect(deviceId)).thenAnswer((_) async {});
       when(
         () => mockRepository.discoverServices(deviceId),
       ).thenAnswer((_) async => []);
+      when(
+        () => mockRepository.monitorBatteryLevel(deviceId),
+      ).thenAnswer((_) => Stream.value(50));
+      when(
+        () => mockRepository.isPhotoCapable(deviceId),
+      ).thenAnswer((_) async => false);
+      when(
+        () => mockRepository.startAudioStream(deviceId),
+      ).thenAnswer((_) => Stream<Uint8List>.empty());
+      when(
+        () => mockRepository.stopAudioStream(deviceId),
+      ).thenAnswer((_) async {});
       await viewModel.connect(deviceId);
     });
 

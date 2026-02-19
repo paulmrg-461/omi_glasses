@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:omi_glasses/features/bluetooth/data/datasources/bluetooth_remote_data_source.dart';
 import 'package:omi_glasses/features/bluetooth/data/repositories/bluetooth_repository_impl.dart';
-import 'package:omi_glasses/features/bluetooth/domain/entities/bluetooth_device_entity.dart';
 import 'package:omi_glasses/core/constants/bluetooth_constants.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 

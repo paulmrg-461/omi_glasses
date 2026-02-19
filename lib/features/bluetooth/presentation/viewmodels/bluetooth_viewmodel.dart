@@ -108,6 +108,53 @@ class BluetoothViewModel extends ChangeNotifier {
     required this.photoRepository,
   });
 
+  Future<void> autoReconnectFromSettings() async {
+    try {
+      final settings = await settingsRepository.load();
+      final ids = <String>{};
+      if (settings.audioDeviceId != null &&
+          settings.audioDeviceId!.isNotEmpty) {
+        ids.add(settings.audioDeviceId!);
+      }
+      if (settings.photoDeviceId != null &&
+          settings.photoDeviceId!.isNotEmpty) {
+        ids.add(settings.photoDeviceId!);
+      }
+      if (ids.isEmpty) {
+        return;
+      }
+
+      try {
+        final isBlueOn = await repository.isBluetoothEnabled;
+        if (!isBlueOn) {
+          return;
+        }
+      } catch (_) {}
+
+      try {
+        await repository.startScan();
+      } catch (_) {}
+
+      List<BluetoothDeviceEntity> snapshot = [];
+      try {
+        snapshot = await repository.scanResults.first.timeout(
+          const Duration(seconds: 5),
+        );
+      } catch (_) {}
+
+      try {
+        await repository.stopScan();
+      } catch (_) {}
+
+      for (final id in ids) {
+        final exists = snapshot.any((d) => d.id == id);
+        if (exists) {
+          await connect(id);
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> startScan() async {
     _errorMessage = null;
     _statusMessage = null;
