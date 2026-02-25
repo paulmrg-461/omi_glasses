@@ -76,7 +76,8 @@ class BluetoothViewModel extends ChangeNotifier {
   final List<int> _conversationPcm = [];
   DateTime _lastVoiceTs = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _silenceTimer;
-  int _silenceMinutes = 2;
+  // Use seconds for faster feedback during testing
+  final int _silenceSeconds = 15;
 
   // Role assignments
   String? _audioDeviceId;
@@ -755,6 +756,14 @@ class BluetoothViewModel extends ChangeNotifier {
     Duration interval = const Duration(seconds: 60),
   }) async {
     _photoDeviceId = deviceId;
+    _photoTimer?.cancel();
+
+    if (deviceId.isEmpty) {
+      _statusMessage = "Captura de fotos desactivada";
+      notifyListeners();
+      return;
+    }
+
     try {
       final s = await settingsRepository.load();
       interval = Duration(seconds: s.photoIntervalSeconds);
@@ -762,11 +771,12 @@ class BluetoothViewModel extends ChangeNotifier {
     // Start listening to images from the photo device
     startImageListenerFor(deviceId);
     // Restart timer
-    _photoTimer?.cancel();
     _photoTimer = Timer.periodic(interval, (_) {
-      triggerPhotoFor(deviceId);
+      if (_photoDeviceId != null && _photoDeviceId!.isNotEmpty) {
+        triggerPhotoFor(_photoDeviceId!);
+      }
     });
-    _statusMessage = "Photo timer started (every ${interval.inSeconds}s)";
+    _statusMessage = "Timer de fotos iniciado (cada ${interval.inSeconds}s)";
     notifyListeners();
   }
 
@@ -858,19 +868,37 @@ class BluetoothViewModel extends ChangeNotifier {
       sum += v;
     }
     final avg = int16.isNotEmpty ? sum / int16.length : 0.0;
-    if (avg > 600) {
+
+    // Threshold for voice activity
+    if (avg > 500) {
       _lastVoiceTs = DateTime.now();
+      // Show transient status if not already showing "Listening..."
+      // To avoid spamming UI updates, we could check a flag or just update periodically
+      // For now, let's just rely on the fact that the timer will pick this up
     }
   }
 
   void _startSilenceMonitor() {
     _silenceTimer?.cancel();
-    _silenceTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
-      final idleFor = DateTime.now().difference(_lastVoiceTs).inMinutes;
-      if (idleFor >= _silenceMinutes && _conversationPcm.isNotEmpty) {
-        await _summarizeConversation();
-        _conversationPcm.clear();
-        _lastVoiceTs = DateTime.now();
+    _silenceTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      final now = DateTime.now();
+      if (_conversationPcm.isNotEmpty) {
+        final idleSeconds = now.difference(_lastVoiceTs).inSeconds;
+
+        if (idleSeconds >= _silenceSeconds) {
+          _statusMessage = "Silencio detectado. Procesando audio...";
+          notifyListeners();
+          await _summarizeConversation();
+          _conversationPcm.clear();
+          _lastVoiceTs = DateTime.now();
+        } else {
+          // Show countdown periodically to assure user it is working
+          if (idleSeconds % 5 == 0) {
+            _statusMessage =
+                "Escuchando... (${_silenceSeconds - idleSeconds}s para resumen)";
+            notifyListeners();
+          }
+        }
       }
     });
   }
@@ -887,6 +915,8 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> _summarizeConversation() async {
+    _statusMessage = "Iniciando resumen de audio...";
+    notifyListeners();
     try {
       final settings = await settingsRepository.load();
       final useLocal =
@@ -994,13 +1024,16 @@ class BluetoothViewModel extends ChangeNotifier {
     Uint8List pcmData,
     String audioUrl,
   ) async {
-    // Ensure scheme is ws or wss
-    var wsUri = Uri.parse(audioUrl);
-    if (wsUri.scheme == 'http') {
-      wsUri = wsUri.replace(scheme: 'ws');
-    } else if (wsUri.scheme == 'https') {
-      wsUri = wsUri.replace(scheme: 'wss');
+    // Force ws/wss scheme via string manipulation to be absolutely sure
+    String wsUrlStr = audioUrl.trim();
+    if (wsUrlStr.startsWith('http://')) {
+      wsUrlStr = wsUrlStr.replaceFirst('http://', 'ws://');
+    } else if (wsUrlStr.startsWith('https://')) {
+      wsUrlStr = wsUrlStr.replaceFirst('https://', 'wss://');
     }
+
+    // Parse URI
+    var wsUri = Uri.parse(wsUrlStr);
 
     // Ensure path is correct. If user provided full path to /ws/audio, use it.
     // If user provided base, append /ws/audio.
@@ -1013,6 +1046,8 @@ class BluetoothViewModel extends ChangeNotifier {
       wsUri = wsUri.replace(path: newPath);
     }
 
+    _statusMessage = "Conectando al servidor local de audio...";
+    notifyListeners();
     debugPrint('Connecting to local audio backend: $wsUri');
 
     final socket = await WebSocket.connect(wsUri.toString());
