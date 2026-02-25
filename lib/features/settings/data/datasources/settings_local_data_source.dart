@@ -12,7 +12,9 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
   static const String kPhotoDeviceId = 'photo_device_id';
   static const String kPhotoInterval = 'photo_interval_seconds';
   static const String kUseLocalModels = 'use_local_models';
-  static const String kLocalApiBaseUrl = 'local_api_base_url';
+  static const String kLocalAudioUrl = 'local_audio_url';
+  static const String kLocalVisionUrl = 'local_vision_url';
+
   @override
   Future<AppSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -21,16 +23,20 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
     final photoId = prefs.getString(kPhotoDeviceId);
     final interval = prefs.getInt(kPhotoInterval) ?? 60;
     final useLocal = prefs.getBool(kUseLocalModels) ?? false;
-    final localBaseUrl = prefs.getString(kLocalApiBaseUrl);
+    final localAudio = prefs.getString(kLocalAudioUrl);
+    final localVision = prefs.getString(kLocalVisionUrl);
+
     return AppSettings(
       geminiApiKey: key,
       audioDeviceId: audioId,
       photoDeviceId: photoId,
       photoIntervalSeconds: interval,
       useLocalModels: useLocal,
-      localApiBaseUrl: localBaseUrl,
+      localAudioUrl: localAudio,
+      localVisionUrl: localVision,
     );
   }
+
   @override
   Future<void> save(AppSettings settings) async {
     final prefs = await SharedPreferences.getInstance();
@@ -45,8 +51,12 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
     }
     await prefs.setInt(kPhotoInterval, settings.photoIntervalSeconds);
     await prefs.setBool(kUseLocalModels, settings.useLocalModels);
-    if (settings.localApiBaseUrl != null) {
-      await prefs.setString(kLocalApiBaseUrl, settings.localApiBaseUrl!);
+
+    if (settings.localAudioUrl != null) {
+      await prefs.setString(kLocalAudioUrl, settings.localAudioUrl!);
+    }
+    if (settings.localVisionUrl != null) {
+      await prefs.setString(kLocalVisionUrl, settings.localVisionUrl!);
     }
   }
 }

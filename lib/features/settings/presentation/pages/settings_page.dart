@@ -3,29 +3,77 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../bluetooth/presentation/viewmodels/bluetooth_viewmodel.dart';
 import '../bloc/settings_bloc.dart';
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  late TextEditingController _keyController;
+  late TextEditingController _localAudioController;
+  late TextEditingController _localVisionController;
+  late TextEditingController _photoIntervalController;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = context.read<SettingsBloc>().state.settings;
+    _keyController = TextEditingController(text: s.geminiApiKey ?? '');
+    _localAudioController = TextEditingController(text: s.localAudioUrl ?? '');
+    _localVisionController = TextEditingController(
+      text: s.localVisionUrl ?? '',
+    );
+    _photoIntervalController = TextEditingController(
+      text: s.photoIntervalSeconds.toString(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _keyController.dispose();
+    _localAudioController.dispose();
+    _localVisionController.dispose();
+    _photoIntervalController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<BluetoothViewModel>();
+
     return Scaffold(
       appBar: AppBar(title: const Text('Configuración')),
-      body: BlocBuilder<SettingsBloc, SettingsState>(
+      body: BlocConsumer<SettingsBloc, SettingsState>(
+        listenWhen: (previous, current) =>
+            previous.settings != current.settings,
+        listener: (context, state) {
+          final s = state.settings;
+          // Sync controllers with state if they differ (e.g. initial load or external update)
+          if ((s.geminiApiKey ?? '') != _keyController.text) {
+            _keyController.text = s.geminiApiKey ?? '';
+          }
+          if ((s.localAudioUrl ?? '') != _localAudioController.text) {
+            _localAudioController.text = s.localAudioUrl ?? '';
+          }
+          if ((s.localVisionUrl ?? '') != _localVisionController.text) {
+            _localVisionController.text = s.localVisionUrl ?? '';
+          }
+          final intervalStr = s.photoIntervalSeconds.toString();
+          if (intervalStr != _photoIntervalController.text) {
+            // Note: This might snap back empty string to "60" while typing,
+            // but preserving focus is the priority.
+            _photoIntervalController.text = intervalStr;
+          }
+        },
         builder: (context, state) {
           final s = state.settings;
-          final keyController = TextEditingController(
-            text: s.geminiApiKey ?? '',
-          );
-          final localUrlController = TextEditingController(
-            text: s.localApiBaseUrl ?? '',
-          );
           final ids = <String>{};
           final devices = vm.connectedDevices
               .where((d) => ids.add(d.id))
               .toList();
-          final photoIntervalController = TextEditingController(
-            text: s.photoIntervalSeconds.toString(),
-          );
+
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -34,7 +82,7 @@ class SettingsPage extends StatelessWidget {
                 const Text('Gemini API Key'),
                 const SizedBox(height: 8),
                 TextField(
-                  controller: keyController,
+                  controller: _keyController,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     hintText: 'Introduce tu API Key',
@@ -56,18 +104,31 @@ class SettingsPage extends StatelessWidget {
                 ),
                 if (s.useLocalModels) ...[
                   const SizedBox(height: 8),
-                  const Text('Base URL API Local'),
+                  const Text('URL Local Audio (WS)'),
                   const SizedBox(height: 8),
                   TextField(
-                    controller: localUrlController,
+                    controller: _localAudioController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: 'ws://192.168.1.10:8000',
+                      labelText: 'URL Local Audio (WS)',
+                    ),
+                    onChanged: (v) {
+                      context.read<SettingsBloc>().add(SetLocalAudioUrl(v));
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('URL Local Visión (HTTP)'),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _localVisionController,
                     decoration: const InputDecoration(
                       border: OutlineInputBorder(),
                       hintText: 'http://192.168.1.10:8000',
+                      labelText: 'URL Local Visión (HTTP)',
                     ),
                     onChanged: (v) {
-                      context
-                          .read<SettingsBloc>()
-                          .add(SetLocalApiBaseUrl(v));
+                      context.read<SettingsBloc>().add(SetLocalVisionUrl(v));
                     },
                   ),
                   const SizedBox(height: 16),
@@ -115,7 +176,7 @@ class SettingsPage extends StatelessWidget {
                 const Text('Intervalo de Foto (segundos)'),
                 const SizedBox(height: 8),
                 TextField(
-                  controller: photoIntervalController,
+                  controller: _photoIntervalController,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),

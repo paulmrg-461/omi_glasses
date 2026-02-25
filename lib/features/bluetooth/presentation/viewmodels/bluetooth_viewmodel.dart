@@ -794,12 +794,12 @@ class BluetoothViewModel extends ChangeNotifier {
       final settings = await settingsRepository.load();
       final useLocal =
           settings.useLocalModels &&
-          (settings.localApiBaseUrl != null &&
-              settings.localApiBaseUrl!.isNotEmpty);
+          (settings.localVisionUrl != null &&
+              settings.localVisionUrl!.isNotEmpty);
       String description;
       if (useLocal) {
-        final baseUrl = settings.localApiBaseUrl!;
-        description = await _describeImageLocal(imageBytes, baseUrl);
+        final visionUrl = settings.localVisionUrl!;
+        description = await _describeImageLocal(imageBytes, visionUrl);
       } else {
         final key = settings.geminiApiKey;
         if (key == null || key.isEmpty) {
@@ -891,16 +891,16 @@ class BluetoothViewModel extends ChangeNotifier {
       final settings = await settingsRepository.load();
       final useLocal =
           settings.useLocalModels &&
-          (settings.localApiBaseUrl != null &&
-              settings.localApiBaseUrl!.isNotEmpty);
+          (settings.localAudioUrl != null &&
+              settings.localAudioUrl!.isNotEmpty);
       String summary;
       String transcript;
       List<String> suggestions;
       final pcmBytes = Uint8List.fromList(_conversationPcm);
       final wav = _wrapPcmToWav(pcmBytes, sampleRate: 16000, channels: 1);
       if (useLocal) {
-        final baseUrl = settings.localApiBaseUrl!;
-        final local = await _summarizeWithLocalBackend(pcmBytes, baseUrl);
+        final audioUrl = settings.localAudioUrl!;
+        final local = await _summarizeWithLocalBackend(pcmBytes, audioUrl);
         summary = local.summary;
         transcript = local.transcript;
         suggestions = local.suggestions;
@@ -950,9 +950,9 @@ class BluetoothViewModel extends ChangeNotifier {
 
   Future<String> _describeImageLocal(
     Uint8List imageBytes,
-    String baseUrl,
+    String visionUrl,
   ) async {
-    final uri = _buildEndpointUri(baseUrl, 'vision/frame_b64');
+    final uri = _buildEndpointUri(visionUrl, 'vision/frame_b64');
     final body = {
       "session_id": _selectedDevice?.id ?? _photoDeviceId ?? '',
       "image_b64": base64Encode(imageBytes),
@@ -983,27 +983,38 @@ class BluetoothViewModel extends ChangeNotifier {
     final base = Uri.parse(baseUrl);
     final basePath = base.path.isEmpty ? '' : base.path;
     final separator = basePath.endsWith('/') || basePath.isEmpty ? '' : '/';
+    // If the base path already includes the suffix (unlikely but possible), avoid duplication
+    // But here we assume user gives BASE URL like http://192.168.1.10:8000
+    // and we append vision/frame_b64
     final newPath = '$basePath$separator$pathSuffix';
     return base.replace(path: newPath);
   }
 
   Future<_LocalAudioSummary> _summarizeWithLocalBackend(
     Uint8List pcmData,
-    String baseUrl,
+    String audioUrl,
   ) async {
-    final base = Uri.parse(baseUrl);
-    final scheme = base.scheme == 'https' ? 'wss' : 'ws';
-    final basePath = base.path.isEmpty ? '' : base.path;
-    final separator = basePath.endsWith('/') || basePath.isEmpty ? '' : '/';
-    final wsPath =
-        '$basePath$separator'
-        'ws/audio';
-    final wsUri = Uri(
-      scheme: scheme,
-      host: base.host,
-      port: base.hasPort ? base.port : null,
-      path: wsPath,
-    );
+    // Ensure scheme is ws or wss
+    var wsUri = Uri.parse(audioUrl);
+    if (wsUri.scheme == 'http') {
+      wsUri = wsUri.replace(scheme: 'ws');
+    } else if (wsUri.scheme == 'https') {
+      wsUri = wsUri.replace(scheme: 'wss');
+    }
+
+    // Ensure path is correct. If user provided full path to /ws/audio, use it.
+    // If user provided base, append /ws/audio.
+    if (!wsUri.path.endsWith('/ws/audio')) {
+      final basePath = wsUri.path;
+      final separator = basePath.endsWith('/') || basePath.isEmpty ? '' : '/';
+      final newPath =
+          '$basePath$separator'
+          'ws/audio';
+      wsUri = wsUri.replace(path: newPath);
+    }
+
+    debugPrint('Connecting to local audio backend: $wsUri');
+
     final socket = await WebSocket.connect(wsUri.toString());
     try {
       // Wait for 'ready' message from server

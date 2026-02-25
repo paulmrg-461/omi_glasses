@@ -6,22 +6,27 @@ class AppSettings extends Equatable {
   final String? photoDeviceId;
   final int photoIntervalSeconds;
   final bool useLocalModels;
-  final String? localApiBaseUrl;
+  final String? localAudioUrl;
+  final String? localVisionUrl;
+
   const AppSettings({
     this.geminiApiKey,
     this.audioDeviceId,
     this.photoDeviceId,
     this.photoIntervalSeconds = 60,
     this.useLocalModels = false,
-    this.localApiBaseUrl,
+    this.localAudioUrl,
+    this.localVisionUrl,
   });
+
   AppSettings copyWith({
     String? geminiApiKey,
     String? audioDeviceId,
     String? photoDeviceId,
     int? photoIntervalSeconds,
     bool? useLocalModels,
-    String? localApiBaseUrl,
+    String? localAudioUrl,
+    String? localVisionUrl,
   }) {
     return AppSettings(
       geminiApiKey: geminiApiKey ?? this.geminiApiKey,
@@ -29,16 +34,19 @@ class AppSettings extends Equatable {
       photoDeviceId: photoDeviceId ?? this.photoDeviceId,
       photoIntervalSeconds: photoIntervalSeconds ?? this.photoIntervalSeconds,
       useLocalModels: useLocalModels ?? this.useLocalModels,
-      localApiBaseUrl: localApiBaseUrl ?? this.localApiBaseUrl,
+      localAudioUrl: localAudioUrl ?? this.localAudioUrl,
+      localVisionUrl: localVisionUrl ?? this.localVisionUrl,
     );
   }
+
   @override
   List<Object?> get props => [
-        geminiApiKey,
-        audioDeviceId,
-        photoDeviceId,
-        photoIntervalSeconds,
-        useLocalModels,
-        localApiBaseUrl,
-      ];
+    geminiApiKey,
+    audioDeviceId,
+    photoDeviceId,
+    photoIntervalSeconds,
+    useLocalModels,
+    localAudioUrl,
+    localVisionUrl,
+  ];
 }

@@ -23,6 +23,7 @@ class SettingsState extends Equatable {
       error: error,
     );
   }
+
   @override
   List<Object?> get props => [settings, loading, error];
 }
@@ -34,43 +35,56 @@ abstract class SettingsEvent extends Equatable {
 }
 
 class LoadSettings extends SettingsEvent {}
+
 class SetGeminiKey extends SettingsEvent {
   final String key;
   const SetGeminiKey(this.key);
 }
+
 class SetAudioDevice extends SettingsEvent {
   final String? deviceId;
   const SetAudioDevice(this.deviceId);
 }
+
 class SetPhotoDevice extends SettingsEvent {
   final String? deviceId;
   const SetPhotoDevice(this.deviceId);
 }
+
 class SetPhotoInterval extends SettingsEvent {
   final int seconds;
   const SetPhotoInterval(this.seconds);
 }
+
 class SetUseLocalModels extends SettingsEvent {
   final bool value;
   const SetUseLocalModels(this.value);
 }
-class SetLocalApiBaseUrl extends SettingsEvent {
+
+class SetLocalAudioUrl extends SettingsEvent {
   final String url;
-  const SetLocalApiBaseUrl(this.url);
+  const SetLocalAudioUrl(this.url);
 }
+
+class SetLocalVisionUrl extends SettingsEvent {
+  final String url;
+  const SetLocalVisionUrl(this.url);
+}
+
 class PersistSettings extends SettingsEvent {}
 
 class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   final SettingsRepository repository;
   SettingsBloc({required this.repository})
-      : super(SettingsState(settings: const AppSettings())) {
+    : super(SettingsState(settings: const AppSettings())) {
     on<LoadSettings>(_onLoad);
     on<SetGeminiKey>(_onSetKey);
     on<SetAudioDevice>(_onSetAudio);
     on<SetPhotoDevice>(_onSetPhoto);
     on<SetPhotoInterval>(_onSetInterval);
     on<SetUseLocalModels>(_onSetUseLocal);
-    on<SetLocalApiBaseUrl>(_onSetLocalBaseUrl);
+    on<SetLocalAudioUrl>(_onSetLocalAudioUrl);
+    on<SetLocalVisionUrl>(_onSetLocalVisionUrl);
     on<PersistSettings>(_onPersist);
   }
   Future<void> _onLoad(LoadSettings event, Emitter<SettingsState> emit) async {
@@ -82,25 +96,73 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
       emit(state.copyWith(loading: false, error: e.toString()));
     }
   }
+
   void _onSetKey(SetGeminiKey event, Emitter<SettingsState> emit) {
-    emit(state.copyWith(settings: state.settings.copyWith(geminiApiKey: event.key)));
+    emit(
+      state.copyWith(
+        settings: state.settings.copyWith(geminiApiKey: event.key),
+      ),
+    );
   }
+
   void _onSetAudio(SetAudioDevice event, Emitter<SettingsState> emit) {
-    emit(state.copyWith(settings: state.settings.copyWith(audioDeviceId: event.deviceId)));
+    emit(
+      state.copyWith(
+        settings: state.settings.copyWith(audioDeviceId: event.deviceId),
+      ),
+    );
   }
+
   void _onSetPhoto(SetPhotoDevice event, Emitter<SettingsState> emit) {
-    emit(state.copyWith(settings: state.settings.copyWith(photoDeviceId: event.deviceId)));
+    emit(
+      state.copyWith(
+        settings: state.settings.copyWith(photoDeviceId: event.deviceId),
+      ),
+    );
   }
+
   void _onSetInterval(SetPhotoInterval event, Emitter<SettingsState> emit) {
-    emit(state.copyWith(settings: state.settings.copyWith(photoIntervalSeconds: event.seconds)));
+    emit(
+      state.copyWith(
+        settings: state.settings.copyWith(photoIntervalSeconds: event.seconds),
+      ),
+    );
   }
+
   void _onSetUseLocal(SetUseLocalModels event, Emitter<SettingsState> emit) {
-    emit(state.copyWith(settings: state.settings.copyWith(useLocalModels: event.value)));
+    emit(
+      state.copyWith(
+        settings: state.settings.copyWith(useLocalModels: event.value),
+      ),
+    );
   }
-  void _onSetLocalBaseUrl(SetLocalApiBaseUrl event, Emitter<SettingsState> emit) {
-    emit(state.copyWith(settings: state.settings.copyWith(localApiBaseUrl: event.url)));
+
+  void _onSetLocalAudioUrl(
+    SetLocalAudioUrl event,
+    Emitter<SettingsState> emit,
+  ) {
+    emit(
+      state.copyWith(
+        settings: state.settings.copyWith(localAudioUrl: event.url),
+      ),
+    );
   }
-  Future<void> _onPersist(PersistSettings event, Emitter<SettingsState> emit) async {
+
+  void _onSetLocalVisionUrl(
+    SetLocalVisionUrl event,
+    Emitter<SettingsState> emit,
+  ) {
+    emit(
+      state.copyWith(
+        settings: state.settings.copyWith(localVisionUrl: event.url),
+      ),
+    );
+  }
+
+  Future<void> _onPersist(
+    PersistSettings event,
+    Emitter<SettingsState> emit,
+  ) async {
     emit(state.copyWith(loading: true, error: null));
     try {
       await repository.save(state.settings);
