@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
@@ -8,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:http/http.dart' as http;
 import '../../domain/entities/bluetooth_device_entity.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
 import '../../../settings/domain/repositories/settings_repository.dart';
@@ -790,17 +792,27 @@ class BluetoothViewModel extends ChangeNotifier {
   Future<void> _describeAndSpeak(Uint8List imageBytes) async {
     try {
       final settings = await settingsRepository.load();
-      final key = settings.geminiApiKey;
-      if (key == null || key.isEmpty) {
-        _statusMessage = "Gemini API Key requerida";
-        notifyListeners();
-        return;
+      final useLocal =
+          settings.useLocalModels &&
+          (settings.localApiBaseUrl != null &&
+              settings.localApiBaseUrl!.isNotEmpty);
+      String description;
+      if (useLocal) {
+        final baseUrl = settings.localApiBaseUrl!;
+        description = await _describeImageLocal(imageBytes, baseUrl);
+      } else {
+        final key = settings.geminiApiKey;
+        if (key == null || key.isEmpty) {
+          _statusMessage = "Gemini API Key requerida";
+          notifyListeners();
+          return;
+        }
+        description = await visionRepository.describeImage(
+          imageBytes: imageBytes,
+          apiKey: key,
+          model: 'gemini-2.5-flash',
+        );
       }
-      final description = await visionRepository.describeImage(
-        imageBytes: imageBytes,
-        apiKey: key,
-        model: 'gemini-2.5-flash',
-      );
       _statusMessage = "Descripción: $description";
       notifyListeners();
       await _tts.setLanguage("es-ES");
@@ -823,7 +835,7 @@ class BluetoothViewModel extends ChangeNotifier {
         debugPrint("Failed to save photo entry: $e");
       }
     } catch (e) {
-      _errorMessage = "Gemini/TTS error: $e";
+      _errorMessage = "IA/TTS error: $e";
       notifyListeners();
     }
   }
@@ -877,30 +889,42 @@ class BluetoothViewModel extends ChangeNotifier {
   Future<void> _summarizeConversation() async {
     try {
       final settings = await settingsRepository.load();
-      final key = settings.geminiApiKey ?? '';
-      if (key.isEmpty) {
-        _statusMessage = "Gemini API Key requerida";
-        notifyListeners();
-        return;
+      final useLocal =
+          settings.useLocalModels &&
+          (settings.localApiBaseUrl != null &&
+              settings.localApiBaseUrl!.isNotEmpty);
+      String summary;
+      String transcript;
+      List<String> suggestions;
+      final pcmBytes = Uint8List.fromList(_conversationPcm);
+      final wav = _wrapPcmToWav(pcmBytes, sampleRate: 16000, channels: 1);
+      if (useLocal) {
+        final baseUrl = settings.localApiBaseUrl!;
+        final local = await _summarizeWithLocalBackend(pcmBytes, baseUrl);
+        summary = local.summary;
+        transcript = local.transcript;
+        suggestions = local.suggestions;
+      } else {
+        final key = settings.geminiApiKey ?? '';
+        if (key.isEmpty) {
+          _statusMessage = "Gemini API Key requerida";
+          notifyListeners();
+          return;
+        }
+        final structured = await _audioStructured
+            .transcribeAndSummarizeStructured(
+              wavBytes: wav,
+              apiKey: key,
+              model: 'gemini-2.5-flash',
+            );
+        summary = structured.summary;
+        transcript = structured.transcript;
+        suggestions = await audioRepository.generateSuggestionsFromText(
+          text: "$summary\n$transcript",
+          apiKey: key,
+          model: 'gemini-2.5-flash',
+        );
       }
-      final wav = _wrapPcmToWav(
-        Uint8List.fromList(_conversationPcm),
-        sampleRate: 16000,
-        channels: 1,
-      );
-      final structured = await _audioStructured
-          .transcribeAndSummarizeStructured(
-            wavBytes: wav,
-            apiKey: key,
-            model: 'gemini-2.5-flash',
-          );
-      final summary = structured.summary;
-      final transcript = structured.transcript;
-      final suggestions = await audioRepository.generateSuggestionsFromText(
-        text: "$summary\n$transcript",
-        apiKey: key,
-        model: 'gemini-2.5-flash',
-      );
       final entry = MemoryEntry(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         timestamp: DateTime.now(),
@@ -921,6 +945,142 @@ class BluetoothViewModel extends ChangeNotifier {
     } catch (e) {
       _errorMessage = "Error de resumen de audio: $e";
       notifyListeners();
+    }
+  }
+
+  Future<String> _describeImageLocal(
+    Uint8List imageBytes,
+    String baseUrl,
+  ) async {
+    final uri = _buildEndpointUri(baseUrl, 'vision/frame_b64');
+    final body = {
+      "session_id": _selectedDevice?.id ?? _photoDeviceId ?? '',
+      "image_b64": base64Encode(imageBytes),
+    };
+    final resp = await http.post(
+      uri,
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(body),
+    );
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('Local vision error: ${resp.statusCode} ${resp.body}');
+    }
+    final json = jsonDecode(resp.body);
+    if (json is Map<String, dynamic>) {
+      final desc =
+          json["description"] ??
+          json["summary"] ??
+          json["text"] ??
+          json["caption"];
+      if (desc != null && desc.toString().isNotEmpty) {
+        return desc.toString();
+      }
+    }
+    return 'Sin descripción';
+  }
+
+  Uri _buildEndpointUri(String baseUrl, String pathSuffix) {
+    final base = Uri.parse(baseUrl);
+    final basePath = base.path.isEmpty ? '' : base.path;
+    final separator = basePath.endsWith('/') || basePath.isEmpty ? '' : '/';
+    final newPath = '$basePath$separator$pathSuffix';
+    return base.replace(path: newPath);
+  }
+
+  Future<_LocalAudioSummary> _summarizeWithLocalBackend(
+    Uint8List pcmData,
+    String baseUrl,
+  ) async {
+    final base = Uri.parse(baseUrl);
+    final scheme = base.scheme == 'https' ? 'wss' : 'ws';
+    final basePath = base.path.isEmpty ? '' : base.path;
+    final separator = basePath.endsWith('/') || basePath.isEmpty ? '' : '/';
+    final wsPath =
+        '$basePath$separator'
+        'ws/audio';
+    final wsUri = Uri(
+      scheme: scheme,
+      host: base.host,
+      port: base.hasPort ? base.port : null,
+      path: wsPath,
+    );
+    final socket = await WebSocket.connect(wsUri.toString());
+    try {
+      // Wait for 'ready' message from server
+      final iterator = StreamIterator(socket);
+      bool ready = false;
+      if (await iterator.moveNext()) {
+        final message = iterator.current;
+        if (message is String) {
+          try {
+            final data = jsonDecode(message);
+            if (data is Map && data["type"] == "ready") {
+              ready = true;
+            }
+          } catch (e) {
+            debugPrint("Error parsing ready message: $e");
+          }
+        }
+      }
+
+      if (!ready) {
+        throw Exception(
+          "Local audio backend did not send 'ready' message or connection closed.",
+        );
+      }
+
+      final config = {
+        "type": "config",
+        "session_id": DateTime.now().millisecondsSinceEpoch.toString(),
+        "sample_rate": 16000,
+        "encoding": "pcm16",
+        "language": "es",
+      };
+      socket.add(utf8.encode(jsonEncode(config)));
+      socket.add(pcmData);
+      socket.add(utf8.encode(jsonEncode({"type": "end_of_stream"})));
+
+      while (await iterator.moveNext()) {
+        final message = iterator.current;
+        if (message is String) {
+          final data = jsonDecode(message);
+          if (data is Map && data["type"] == "final_result") {
+            final analysis = data["analysis"];
+            if (analysis is Map) {
+              final summary = analysis["summary"]?.toString() ?? '';
+              final transcriptSegments =
+                  analysis["transcript"] as List<dynamic>? ?? const [];
+              final transcript = transcriptSegments
+                  .map((e) => (e as Map)["text"]?.toString() ?? '')
+                  .where((t) => t.isNotEmpty)
+                  .join(' ');
+              final actionItems =
+                  analysis["action_items"] as List<dynamic>? ?? const [];
+              final suggestions = actionItems
+                  .map((e) => (e as Map)["title"]?.toString() ?? '')
+                  .where((t) => t.isNotEmpty)
+                  .toList();
+              final risks = analysis["risks"] as List<dynamic>? ?? const [];
+              final risksText = risks
+                  .map((r) => r.toString())
+                  .where((r) => r.isNotEmpty)
+                  .toList();
+              final finalSummary = summary.isNotEmpty ? summary : transcript;
+              final finalSuggestions = suggestions.isNotEmpty
+                  ? suggestions
+                  : risksText;
+              return _LocalAudioSummary(
+                summary: finalSummary,
+                transcript: transcript,
+                suggestions: finalSuggestions,
+              );
+            }
+          }
+        }
+      }
+      throw Exception('No final_result from local audio backend');
+    } finally {
+      await socket.close();
     }
   }
 
@@ -973,4 +1133,15 @@ class BluetoothViewModel extends ChangeNotifier {
       Permission.microphone,
     ].request();
   }
+}
+
+class _LocalAudioSummary {
+  final String summary;
+  final String transcript;
+  final List<String> suggestions;
+  _LocalAudioSummary({
+    required this.summary,
+    required this.transcript,
+    required this.suggestions,
+  });
 }

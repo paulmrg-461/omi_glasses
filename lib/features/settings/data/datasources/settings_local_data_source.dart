@@ -11,6 +11,8 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
   static const String kAudioDeviceId = 'audio_device_id';
   static const String kPhotoDeviceId = 'photo_device_id';
   static const String kPhotoInterval = 'photo_interval_seconds';
+  static const String kUseLocalModels = 'use_local_models';
+  static const String kLocalApiBaseUrl = 'local_api_base_url';
   @override
   Future<AppSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -18,11 +20,15 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
     final audioId = prefs.getString(kAudioDeviceId);
     final photoId = prefs.getString(kPhotoDeviceId);
     final interval = prefs.getInt(kPhotoInterval) ?? 60;
+    final useLocal = prefs.getBool(kUseLocalModels) ?? false;
+    final localBaseUrl = prefs.getString(kLocalApiBaseUrl);
     return AppSettings(
       geminiApiKey: key,
       audioDeviceId: audioId,
       photoDeviceId: photoId,
       photoIntervalSeconds: interval,
+      useLocalModels: useLocal,
+      localApiBaseUrl: localBaseUrl,
     );
   }
   @override
@@ -38,5 +44,9 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
       await prefs.setString(kPhotoDeviceId, settings.photoDeviceId!);
     }
     await prefs.setInt(kPhotoInterval, settings.photoIntervalSeconds);
+    await prefs.setBool(kUseLocalModels, settings.useLocalModels);
+    if (settings.localApiBaseUrl != null) {
+      await prefs.setString(kLocalApiBaseUrl, settings.localApiBaseUrl!);
+    }
   }
 }

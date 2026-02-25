@@ -50,6 +50,14 @@ class SetPhotoInterval extends SettingsEvent {
   final int seconds;
   const SetPhotoInterval(this.seconds);
 }
+class SetUseLocalModels extends SettingsEvent {
+  final bool value;
+  const SetUseLocalModels(this.value);
+}
+class SetLocalApiBaseUrl extends SettingsEvent {
+  final String url;
+  const SetLocalApiBaseUrl(this.url);
+}
 class PersistSettings extends SettingsEvent {}
 
 class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
@@ -61,6 +69,8 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     on<SetAudioDevice>(_onSetAudio);
     on<SetPhotoDevice>(_onSetPhoto);
     on<SetPhotoInterval>(_onSetInterval);
+    on<SetUseLocalModels>(_onSetUseLocal);
+    on<SetLocalApiBaseUrl>(_onSetLocalBaseUrl);
     on<PersistSettings>(_onPersist);
   }
   Future<void> _onLoad(LoadSettings event, Emitter<SettingsState> emit) async {
@@ -83,6 +93,12 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
   }
   void _onSetInterval(SetPhotoInterval event, Emitter<SettingsState> emit) {
     emit(state.copyWith(settings: state.settings.copyWith(photoIntervalSeconds: event.seconds)));
+  }
+  void _onSetUseLocal(SetUseLocalModels event, Emitter<SettingsState> emit) {
+    emit(state.copyWith(settings: state.settings.copyWith(useLocalModels: event.value)));
+  }
+  void _onSetLocalBaseUrl(SetLocalApiBaseUrl event, Emitter<SettingsState> emit) {
+    emit(state.copyWith(settings: state.settings.copyWith(localApiBaseUrl: event.url)));
   }
   Future<void> _onPersist(PersistSettings event, Emitter<SettingsState> emit) async {
     emit(state.copyWith(loading: true, error: null));

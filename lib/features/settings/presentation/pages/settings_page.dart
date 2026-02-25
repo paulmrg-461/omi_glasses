@@ -16,6 +16,9 @@ class SettingsPage extends StatelessWidget {
           final keyController = TextEditingController(
             text: s.geminiApiKey ?? '',
           );
+          final localUrlController = TextEditingController(
+            text: s.localApiBaseUrl ?? '',
+          );
           final ids = <String>{};
           final devices = vm.connectedDevices
               .where((d) => ids.add(d.id))
@@ -41,6 +44,34 @@ class SettingsPage extends StatelessWidget {
                   },
                 ),
                 const SizedBox(height: 16),
+                SwitchListTile(
+                  title: const Text('Usar modelos locales'),
+                  subtitle: const Text(
+                    'Si está desactivado, se usará Gemini en la nube',
+                  ),
+                  value: s.useLocalModels,
+                  onChanged: (v) {
+                    context.read<SettingsBloc>().add(SetUseLocalModels(v));
+                  },
+                ),
+                if (s.useLocalModels) ...[
+                  const SizedBox(height: 8),
+                  const Text('Base URL API Local'),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: localUrlController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: 'http://192.168.1.10:8000',
+                    ),
+                    onChanged: (v) {
+                      context
+                          .read<SettingsBloc>()
+                          .add(SetLocalApiBaseUrl(v));
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 const Text('Fuente de Audio'),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
