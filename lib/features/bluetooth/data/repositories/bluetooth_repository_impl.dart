@@ -98,6 +98,34 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   }
 
   @override
+  Stream<int> monitorHeartRate(String deviceId) {
+    final device = BluetoothDevice.fromId(deviceId);
+    return dataSource
+        .subscribeToCharacteristic(
+          device,
+          BluetoothConstants.heartRateServiceUuid,
+          BluetoothConstants.heartRateMeasurementUuid,
+        )
+        .map((data) {
+          if (data.isEmpty) return 0;
+
+          // Parse Heart Rate Measurement (0x2A37)
+          // Byte 0: Flags
+          int flags = data[0];
+          bool isUint16 = (flags & 0x01) != 0;
+
+          if (isUint16 && data.length >= 3) {
+            // HR is in byte 1 and 2 (Little Endian)
+            return data[1] + (data[2] << 8);
+          } else if (!isUint16 && data.length >= 2) {
+            // HR is in byte 1
+            return data[1];
+          }
+          return 0;
+        });
+  }
+
+  @override
   Future<bool> get isBluetoothEnabled => dataSource.isBluetoothEnabled;
 
   @override
@@ -109,33 +137,62 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   @override
   Stream<List<BluetoothDeviceEntity>> get scanResults {
     return dataSource.scanResults.map((results) {
-      return results.map((result) {
-        final localName = result.advertisementData.localName;
-        final platformName = result.device.platformName;
+      return results
+          .where((result) {
+            final name = result.advertisementData.localName;
+            final platformName = result.device.platformName;
+            final serviceUuids = result.advertisementData.serviceUuids
+                .map((uuid) => uuid.toString().toLowerCase())
+                .toList();
 
-        final name = localName.isNotEmpty
-            ? localName
-            : (platformName.isNotEmpty ? platformName : 'Unknown Device');
+            // Filter logic:
+            // 1. OMI Devices (Service UUID or Name)
+            if (serviceUuids.contains(
+              BluetoothConstants.serviceUuid.toLowerCase(),
+            )) {
+              return true;
+            }
+            if (name.toUpperCase().startsWith("OMI") ||
+                platformName.toUpperCase().startsWith("OMI")) {
+              return true;
+            }
 
-        return BluetoothDeviceEntity(
-          id: result.device.remoteId.toString(),
-          name: name,
-          rssi: result.rssi,
-          serviceUuids: result.advertisementData.serviceUuids
-              .map((uuid) => uuid.toString())
-              .toList(),
-        );
-      }).toList();
+            // 2. Y25 Band (Name starts with Y25_)
+            if (name.toUpperCase().startsWith("Y25_") ||
+                platformName.toUpperCase().startsWith("Y25_")) {
+              return true;
+            }
+
+            return false;
+          })
+          .map((result) {
+            final localName = result.advertisementData.localName;
+            final platformName = result.device.platformName;
+
+            final name = localName.isNotEmpty
+                ? localName
+                : (platformName.isNotEmpty ? platformName : 'Unknown Device');
+
+            return BluetoothDeviceEntity(
+              id: result.device.remoteId.toString(),
+              name: name,
+              rssi: result.rssi,
+              serviceUuids: result.advertisementData.serviceUuids
+                  .map((uuid) => uuid.toString())
+                  .toList(),
+            );
+          })
+          .toList();
     });
   }
 
   @override
   Future<void> startScan() async {
-    // We scan for OMI devices specifically, but also allow general scanning if needed.
-    // For now, let's include the OMI Service UUID to prioritize finding the glasses.
+    // We scan for all devices and filter in the stream to support multiple device types
+    // (OMI Glasses and Y25 Band)
     return dataSource.startScan(
       timeout: const Duration(seconds: 15),
-      withServices: [BluetoothConstants.serviceUuid],
+      withServices: [], // Empty list = scan all devices
     );
   }
 
@@ -433,7 +490,10 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
         BluetoothConstants.photoDataUuid,
       );
       // We don't need actual data; just attempt to start notifications once
-      await stream.first.timeout(const Duration(milliseconds: 10), onTimeout: () => Uint8List(0));
+      await stream.first.timeout(
+        const Duration(milliseconds: 10),
+        onTimeout: () => Uint8List(0),
+      );
       return true;
     } catch (_) {
       return false;

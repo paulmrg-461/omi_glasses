@@ -67,6 +67,7 @@ class BluetoothViewModel extends ChangeNotifier {
   StreamSubscription? _imageSubscription;
   StreamSubscription? _audioSubscription;
   StreamSubscription? _batterySubscription;
+  StreamSubscription? _heartRateSubscription;
 
   // Audio State
   FlutterSoundPlayer? _audioPlayer;
@@ -89,6 +90,30 @@ class BluetoothViewModel extends ChangeNotifier {
   // Battery State
   int? _batteryLevel;
   int? get batteryLevel => _batteryLevel;
+
+  // Heart Rate State
+  int? _heartRate;
+  int? get heartRate => _heartRate;
+
+  // Health Data State (Y25 Band)
+  int _steps = 0;
+  int get steps => _steps;
+  int _calories = 0;
+  int get calories => _calories;
+  double _distanceKm = 0.0;
+  double get distanceKm => _distanceKm;
+  int _bloodOxygen = 0;
+  int get bloodOxygen => _bloodOxygen;
+  double _temperature = 0.0;
+  double get temperature => _temperature;
+  int _stress = 0;
+  int get stress => _stress;
+  String _sleepDuration = "0h 0m";
+  String get sleepDuration => _sleepDuration;
+  
+  // Debug for proprietary services
+  List<String> _debugLogs = [];
+  List<String> get debugLogs => _debugLogs;
 
   // Image State
   Uint8List? _lastImage;
@@ -271,6 +296,9 @@ class BluetoothViewModel extends ChangeNotifier {
 
         // Start monitoring battery automatically
         startBatteryListener();
+
+        // Start monitoring heart rate automatically (if supported)
+        startHeartRateListener();
 
         // Auto-start audio if not set
         if (_audioDeviceId == null) {
@@ -686,6 +714,31 @@ class BluetoothViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> startHeartRateListener() async {
+    if (_selectedDevice == null) return;
+
+    // Cancel previous if any
+    await _heartRateSubscription?.cancel();
+
+    debugPrint("Starting heart rate listener...");
+    try {
+      _heartRateSubscription = repository
+          .monitorHeartRate(_selectedDevice!.id)
+          .listen(
+            (hr) {
+              debugPrint("Heart Rate Received: $hr BPM");
+              _heartRate = hr;
+              notifyListeners();
+            },
+            onError: (e) {
+              debugPrint("Error reading heart rate: $e");
+            },
+          );
+    } catch (e) {
+      debugPrint("Failed to start heart rate listener: $e");
+    }
+  }
+
   Future<void> setupWifi(String ssid, String password) async {
     if (_selectedDevice == null) return;
 
@@ -793,6 +846,7 @@ class BluetoothViewModel extends ChangeNotifier {
     _imageSubscription?.cancel();
     _audioSubscription?.cancel();
     _batterySubscription?.cancel();
+    _heartRateSubscription?.cancel();
     _photoTimer?.cancel();
     _silenceTimer?.cancel();
     _audioPlayer?.closePlayer();

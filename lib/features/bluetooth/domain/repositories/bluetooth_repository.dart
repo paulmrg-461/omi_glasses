@@ -26,7 +26,13 @@ abstract class BluetoothRepository {
   Future<void> stopAudioStream(String deviceId);
 
   // Battery features
+  /// Monitors the battery level of the connected device.
+  /// Returns a stream of battery level percentage (0-100).
   Stream<int> monitorBatteryLevel(String deviceId);
+
+  /// Monitors the heart rate of the connected device (if supported).
+  /// Returns a stream of heart rate in BPM.
+  Stream<int> monitorHeartRate(String deviceId);
 
   // Bluetooth State
   Future<bool> get isBluetoothEnabled;

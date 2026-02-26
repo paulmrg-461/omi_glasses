@@ -40,6 +40,18 @@ class DeviceStatusHeader extends StatelessWidget {
                   ),
                 ],
               ),
+            if (viewModel.heartRate != null && viewModel.heartRate! > 0)
+              Row(
+                children: [
+                  const SizedBox(width: 16),
+                  const Icon(Icons.favorite, color: Colors.red),
+                  const SizedBox(width: 4),
+                  Text(
+                    "${viewModel.heartRate} BPM",
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
           ],
         ),
       ],
