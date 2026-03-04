@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/di/injection_container.dart' as di;
 import '../../../bluetooth/presentation/pages/bluetooth_scan_page.dart';
+import '../../../bluetooth/presentation/pages/health_page.dart';
 import '../../../memory/domain/entities/memory_entry.dart';
 import '../../../memory/domain/repositories/memory_repository.dart';
 import '../../../photo/domain/entities/photo_entry.dart';
@@ -63,6 +64,7 @@ class _AppTabsPageState extends State<AppTabsPage> {
           index: _index,
           children: [
             const BluetoothScanPage(showAppBar: false),
+            const HealthPage(),
             RefreshIndicator(
               onRefresh: _loadMemories,
               child: _loadingMem
@@ -142,6 +144,10 @@ class _AppTabsPageState extends State<AppTabsPage> {
         selectedIndex: _index,
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home), label: 'Inicio'),
+          NavigationDestination(
+            icon: Icon(Icons.health_and_safety),
+            label: 'Salud',
+          ),
           NavigationDestination(icon: Icon(Icons.history), label: 'Historial'),
           NavigationDestination(
             icon: Icon(Icons.photo_library),
@@ -153,9 +159,9 @@ class _AppTabsPageState extends State<AppTabsPage> {
           setState(() {
             _index = i;
           });
-          if (i == 1) {
+          if (i == 2) {
             _loadMemories();
-          } else if (i == 2) {
+          } else if (i == 3) {
             _loadPhotos();
           }
         },

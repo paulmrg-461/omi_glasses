@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
+import 'package:omi_glasses/core/constants/bluetooth_constants.dart';
 import 'package:omi_glasses/core/services/foreground_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
@@ -68,6 +69,7 @@ class BluetoothViewModel extends ChangeNotifier {
   StreamSubscription? _audioSubscription;
   StreamSubscription? _batterySubscription;
   StreamSubscription? _heartRateSubscription;
+  StreamSubscription? _debugSubscription;
 
   // Audio State
   FlutterSoundPlayer? _audioPlayer;
@@ -86,6 +88,7 @@ class BluetoothViewModel extends ChangeNotifier {
   String? _photoDeviceId;
   String? get photoDeviceId => _photoDeviceId;
   Timer? _photoTimer;
+  Timer? _healthDataTimer;
 
   // Battery State
   int? _batteryLevel;
@@ -110,7 +113,7 @@ class BluetoothViewModel extends ChangeNotifier {
   int get stress => _stress;
   String _sleepDuration = "0h 0m";
   String get sleepDuration => _sleepDuration;
-  
+
   // Debug for proprietary services
   List<String> _debugLogs = [];
   List<String> get debugLogs => _debugLogs;
@@ -292,24 +295,84 @@ class BluetoothViewModel extends ChangeNotifier {
 
       // Discover services to verify connection and capability
       try {
+        // This now returns detailed service/characteristic info for debugging
         _connectedDeviceServices = await repository.discoverServices(deviceId);
 
         // Start monitoring battery automatically
-        startBatteryListener();
+        try {
+          startBatteryListener();
+        } catch (e) {
+          debugPrint("Battery service not found or error: $e");
+        }
 
         // Start monitoring heart rate automatically (if supported)
-        startHeartRateListener();
+        try {
+          startHeartRateListener();
+        } catch (e) {
+          debugPrint("Heart Rate service not found or error: $e");
+        }
 
-        // Auto-start audio if not set
+        // Start monitoring other health data (if Y25 or generic)
+        try {
+          startHealthMonitoring();
+        } catch (e) {
+          debugPrint("Health monitoring error: $e");
+        }
+
+        // Start debug listener for raw data
+        startDebugListener(deviceId);
+
+        // Auto-init Y25 / Lefun Band
+        if (_selectedDevice != null &&
+            (_selectedDevice!.name.toUpperCase().contains("Y25") ||
+                _selectedDevice!.name.toUpperCase().contains("LEFUN") ||
+                _selectedDevice!.name.toUpperCase().contains("WATCH"))) {
+          debugPrint(
+            "Auto-detect: Y25/Lefun device found. Triggering init sequence.",
+          );
+          triggerY25Init();
+        }
+
+        // Auto-start audio if not set (Check if OMI device first?)
         if (_audioDeviceId == null) {
-          await setAudioSource(deviceId);
+          try {
+            final hasOmiService = await repository.hasService(
+              deviceId,
+              BluetoothConstants.serviceUuid,
+            );
+            if (hasOmiService) {
+              await setAudioSource(deviceId);
+            } else {
+              debugPrint(
+                "Device $deviceId does not have OMI Service. Skipping Audio setup.",
+              );
+            }
+          } catch (e) {
+            debugPrint(
+              "Audio source setup failed (might not be OMI device): $e",
+            );
+          }
         }
 
         // Auto-assign photo source if capable and not set yet
         if (_photoDeviceId == null) {
-          final canPhoto = await repository.isPhotoCapable(deviceId);
-          if (canPhoto) {
-            await setPhotoSource(deviceId);
+          try {
+            final hasOmiService = await repository.hasService(
+              deviceId,
+              BluetoothConstants.serviceUuid,
+            );
+            if (hasOmiService) {
+              final canPhoto = await repository.isPhotoCapable(deviceId);
+              if (canPhoto) {
+                await setPhotoSource(deviceId);
+              }
+            } else {
+              debugPrint(
+                "Device $deviceId does not have OMI Service. Skipping Photo setup.",
+              );
+            }
+          } catch (e) {
+            debugPrint("Photo source check failed: $e");
           }
         }
       } catch (e) {
@@ -360,6 +423,8 @@ class BluetoothViewModel extends ChangeNotifier {
       if (_selectedDevice?.id == targetId) {
         _selectedDevice = null;
         _connectedDeviceServices = [];
+        _debugSubscription?.cancel();
+        _debugLogs.clear();
       }
 
       // Cleanup roles if the device was assigned
@@ -739,6 +804,41 @@ class BluetoothViewModel extends ChangeNotifier {
     }
   }
 
+  void startHealthMonitoring() {
+    _healthDataTimer?.cancel();
+    if (_selectedDevice == null) return;
+
+    debugPrint("Starting Health Monitoring (Generic/Y25)...");
+
+    // In a real implementation with proprietary UUIDs, we would subscribe here.
+    // Since we don't have them yet, we just ensure the timer is running for future polling logic.
+    _healthDataTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (_selectedDevice == null) {
+        timer.cancel();
+        return;
+      }
+      // Placeholder for polling logic if needed
+    });
+  }
+
+  void simulateHealthData() {
+    // Demo data to visualize UI as requested
+    final now = DateTime.now();
+    _steps = 1250 + (now.second * 15);
+    _calories = (_steps * 0.04).toInt();
+    _distanceKm = double.parse((_steps * 0.0007).toStringAsFixed(2));
+    _bloodOxygen = 98; // Healthy
+    _temperature = 36.6;
+    _stress = 42; // Low stress
+    _sleepDuration = "7h 30m";
+
+    // Randomize slightly
+    if (now.second % 2 == 0) _bloodOxygen = 97;
+    if (now.second % 5 == 0) _stress = 55;
+
+    notifyListeners();
+  }
+
   Future<void> setupWifi(String ssid, String password) async {
     if (_selectedDevice == null) return;
 
@@ -839,6 +939,113 @@ class BluetoothViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> sendRawDebugCommand(String hexCommand) async {
+    if (_selectedDevice == null) return;
+    try {
+      final bytes = hexCommand
+          .split(' ')
+          .where((s) => s.isNotEmpty)
+          .map((s) => int.parse(s, radix: 16))
+          .toList();
+      _debugLogs.add("Sending: $hexCommand");
+      notifyListeners();
+
+      // Try NUS Write (6e400002) first, then AE01
+      bool sentToNus = false;
+      try {
+        await repository.writeCharacteristicBytes(
+          _selectedDevice!.id,
+          "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+          "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
+          bytes,
+        );
+        _debugLogs.add("Sent to NUS (6e400002)");
+        sentToNus = true;
+      } catch (e1) {
+        _debugLogs.add("NUS failed: $e1");
+      }
+
+      // Always try AE01 as well for Y25 bands, as they often have both but listen on AE01
+      // If NUS succeeded, we can skip logging AE01 failures to reduce noise
+      try {
+        await repository.writeCharacteristicBytes(
+          _selectedDevice!.id,
+          "0000ae00-0000-1000-8000-00805f9b34fb",
+          "0000ae01-0000-1000-8000-00805f9b34fb",
+          bytes,
+        );
+        _debugLogs.add("Sent to AE01 (Success)");
+      } catch (e2) {
+        // Log AE01 error if it's NOT a "not supported" error (to avoid noise)
+        // OR if NUS also failed (so we know both failed)
+        final isNotSupported = e2.toString().contains(
+          "WRITE property is not supported",
+        );
+        if (!sentToNus || !isNotSupported) {
+          _debugLogs.add("AE01 failed: $e2");
+        }
+      }
+      notifyListeners();
+    } catch (e) {
+      _debugLogs.add("Invalid Hex: $e");
+      notifyListeners();
+    }
+  }
+
+  Future<void> triggerY25Init() async {
+    // Try a few common init sequences for Y25 / Lefun / JYou
+    _debugLogs.add("Starting Y25 Init Sequence...");
+
+    // 1. Lefun Magic String: AB 00 04 00 00 00 80 (Bind/Login)
+    await sendRawDebugCommand("AB 00 04 00 00 00 80");
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 2. Generic Enable: 01 00
+    await sendRawDebugCommand("01 00");
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 3. Heart Rate Start (Commonly AB 00 05 ... or AB 00 03 ...)
+    // Try AB 00 05 00 00 00 80
+    await sendRawDebugCommand("AB 00 05 00 00 00 80");
+
+    // 4. Try alternate HR Start
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("AB 00 03 00 00 00 80");
+
+    // 5. Try "Keep Alive" or "Time Set" placeholder
+    // AB 00 08 ... (Set Time) - often needed to "unlock" data
+    // Format: AB 00 08 [Y] [M] [D] [H] [m] [s] ...
+    final now = DateTime.now();
+    final year = now.year % 100; // 2 digits
+    final cmd =
+        "AB 00 08 ${year.toRadixString(16).padLeft(2, '0')} ${now.month.toRadixString(16).padLeft(2, '0')} ${now.day.toRadixString(16).padLeft(2, '0')} ${now.hour.toRadixString(16).padLeft(2, '0')} ${now.minute.toRadixString(16).padLeft(2, '0')} ${now.second.toRadixString(16).padLeft(2, '0')}";
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand(cmd);
+
+    // 7. Set User Profile (Required by some bands for measurement)
+    // AB 00 01 [Gender 1=Male] [Age] [Height cm] [Weight kg] ...
+    // Example: Male, 30yo, 175cm, 75kg
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("AB 00 01 01 1E B3 4B 00 00");
+
+    // 8. Try 0x73 Protocol Start Measurement (if applicable)
+    // 73 15 01 (Start)
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("73 15 01");
+  }
+
+  Future<void> triggerHeartRateStart() async {
+    _debugLogs.add("Triggering Heart Rate...");
+    // Try standard AB protocol for HR
+    await sendRawDebugCommand("AB 00 05 00 00 00 80");
+    // Try alternate command
+    await Future.delayed(const Duration(milliseconds: 300));
+    await sendRawDebugCommand("AB 00 03 00 00 00 80");
+    // Try 0x73 protocol start
+    await Future.delayed(const Duration(milliseconds: 300));
+    await sendRawDebugCommand("73 15 01");
+  }
+
   @override
   void dispose() {
     _scanSubscription?.cancel();
@@ -849,6 +1056,7 @@ class BluetoothViewModel extends ChangeNotifier {
     _heartRateSubscription?.cancel();
     _photoTimer?.cancel();
     _silenceTimer?.cancel();
+    _healthDataTimer?.cancel();
     _audioPlayer?.closePlayer();
     super.dispose();
   }
@@ -1102,6 +1310,7 @@ class BluetoothViewModel extends ChangeNotifier {
 
     _statusMessage = "Conectando al servidor local de audio...";
     notifyListeners();
+
     debugPrint('Connecting to local audio backend: $wsUri');
 
     final socket = await WebSocket.connect(wsUri.toString());
@@ -1160,6 +1369,7 @@ class BluetoothViewModel extends ChangeNotifier {
                   .map((e) => (e as Map)["title"]?.toString() ?? '')
                   .where((t) => t.isNotEmpty)
                   .toList();
+              // ignore: unused_local_variable
               final risks = analysis["risks"] as List<dynamic>? ?? const [];
               final risksText = risks
                   .map((r) => r.toString())
@@ -1181,6 +1391,198 @@ class BluetoothViewModel extends ChangeNotifier {
       throw Exception('No final_result from local audio backend');
     } finally {
       await socket.close();
+    }
+  }
+
+  void startDebugListener(String deviceId) {
+    _debugSubscription?.cancel();
+    _debugLogs.clear();
+    _debugLogs.add("Starting debug monitor for $deviceId...");
+    notifyListeners();
+
+    try {
+      _debugSubscription = repository
+          .monitorAllServices(deviceId)
+          .listen(
+            (log) {
+              if (_debugLogs.length >= 100) {
+                _debugLogs.removeAt(0);
+              }
+              _debugLogs.add(log);
+              _processDebugData(log);
+              notifyListeners();
+            },
+            onError: (e) {
+              _debugLogs.add("Error: $e");
+              notifyListeners();
+            },
+          );
+    } catch (e) {
+      _debugLogs.add("Failed to start: $e");
+      notifyListeners();
+    }
+  }
+
+  void _processDebugData(String log) {
+    if (!log.contains("Data:")) return;
+    try {
+      final parts = log.split("Data: ");
+      if (parts.length < 2) return;
+
+      final uuidPart = parts[0].toLowerCase(); // e.g. "[00002a37-...] "
+      final hexStr = parts[1].trim();
+      if (hexStr.isEmpty) return;
+
+      // Update status immediately to show aliveness
+      // _statusMessage = "Rx: ${hexStr.length > 20 ? hexStr.substring(0, 20) + '...' : hexStr}";
+      // notifyListeners();
+
+      final bytes = hexStr
+          .split(' ')
+          .map((e) => int.parse(e, radix: 16))
+          .toList();
+
+      bool handled = false;
+
+      // 1. Check for Standard BLE Heart Rate (UUID 0x2A37)
+      if (uuidPart.contains("2a37")) {
+        // Standard BLE HR Format: Flags (1 byte) + Value (1 or 2 bytes)
+        // Flags bit 0: 0=uint8, 1=uint16
+        if (bytes.isNotEmpty) {
+          final flags = bytes[0];
+          final isUint16 = (flags & 0x01) != 0;
+          if (isUint16 && bytes.length >= 3) {
+            final hr = bytes[1] + (bytes[2] << 8);
+            _heartRate = hr;
+            _statusMessage = "Std HR (16): $hr BPM";
+          } else if (!isUint16 && bytes.length >= 2) {
+            final hr = bytes[1];
+            _heartRate = hr;
+            _statusMessage = "Std HR (8): $hr BPM";
+          }
+          _debugLogs.add("Standard HR Update: $_heartRate");
+          handled = true;
+          notifyListeners();
+          return;
+        }
+      }
+
+      // 2. Y25 / Lefun Protocol (Magic Byte 0xAB)
+      if (bytes.isNotEmpty && bytes[0] == 0xAB) {
+        // AB 00 06 ... (Battery Info)
+        if (bytes.length >= 7 && bytes[2] == 0x06) {
+          final battery = bytes[4];
+          if (battery >= 0 && battery <= 100) {
+            _batteryLevel = battery;
+            _statusMessage = "Battery: $battery%";
+            _debugLogs.add("Parsed Battery: $battery%");
+            handled = true;
+          }
+        }
+
+        // AB 00 0A ... (Stats: Steps, Cal, Dist)
+        if (bytes.length >= 17 && bytes[2] == 0x0A) {
+          final stepsVal = (bytes[4] << 16) | (bytes[5] << 8) | bytes[6];
+          _steps = stepsVal;
+          final calVal = (bytes[7] << 16) | (bytes[8] << 8) | bytes[9];
+          _calories = calVal;
+          final distVal = (bytes[10] << 16) | (bytes[11] << 8) | bytes[12];
+          _distanceKm = distVal / 1000.0;
+          _statusMessage = "Steps: $_steps";
+          _debugLogs.add(
+            "Parsed Stats: Steps=$_steps, Cal=$_calories, Dist=$_distanceKm",
+          );
+          handled = true;
+        }
+
+        // AB 00 05 ... (Measurement Data)
+        if (bytes.length >= 6) {
+          // Try multiple offsets for HR
+          // Usually byte 4 or 5
+          int hr = 0;
+          if (bytes[4] > 30 && bytes[4] < 220)
+            hr = bytes[4];
+          else if (bytes[5] > 30 && bytes[5] < 220)
+            hr = bytes[5];
+
+          if (hr > 0) {
+            _heartRate = hr;
+            _statusMessage = "Y25 HR: $hr BPM";
+            _debugLogs.add("Parsed HR (AB): $hr");
+            handled = true;
+          }
+
+          if (bytes.length >= 7) {
+            final spo2 = bytes[6];
+            if (spo2 >= 80 && spo2 <= 100) {
+              _bloodOxygen = spo2;
+              _debugLogs.add("Parsed SpO2 (AB): $spo2");
+            }
+          }
+        }
+      }
+
+      // 3. Protocol 0x73 (Detected in logs)
+      if (bytes.isNotEmpty && bytes[0] == 0x73) {
+        // 73 2C ... (Heart Rate?)
+        if (bytes.length >= 3 && bytes[1] == 0x2C) {
+          final hr = bytes[2];
+          if (hr > 0) {
+            _heartRate = hr;
+            _statusMessage = "Y25(73) HR: $hr BPM";
+            _debugLogs.add("Parsed HR (73): $hr");
+            handled = true;
+          }
+        }
+        // 73 2B ... (SPO2?)
+        if (bytes.length >= 3 && bytes[1] == 0x2B) {
+          final spo2 = bytes[2];
+          if (spo2 > 0 && spo2 <= 100) {
+            _bloodOxygen = spo2;
+            _debugLogs.add("Parsed SpO2 (73): $spo2");
+            handled = true;
+          }
+        }
+      }
+
+      // 4. Fallback: Embedded Scan (if not strictly handled or just to be safe)
+      if (!handled && bytes.length > 2) {
+        // Look for sequence [0x73, 0x2C, VALUE] anywhere
+        for (int i = 0; i < bytes.length - 2; i++) {
+          if (bytes[i] == 0x73 && bytes[i + 1] == 0x2C) {
+            final hr = bytes[i + 2];
+            if (hr > 30 && hr < 220) {
+              _heartRate = hr;
+              _statusMessage = "Found HR: $hr";
+              _debugLogs.add("Scanned HR: $hr");
+              handled = true;
+            }
+          }
+          if (bytes[i] == 0x73 && bytes[i + 1] == 0x2B) {
+            final spo2 = bytes[i + 2];
+            if (spo2 > 80 && spo2 <= 100) {
+              _bloodOxygen = spo2;
+              _debugLogs.add("Scanned SPO2: $spo2");
+            }
+          }
+        }
+      }
+
+      // 5. Ultimate Fallback: Just show the raw data in status if it looks interesting
+      if (!handled) {
+        if (bytes.isNotEmpty) {
+          _statusMessage = "Raw: ${bytes.take(5).join(' ')}...";
+          _debugLogs.add("Unparsed: $bytes");
+        } else {
+          _statusMessage = "Empty data packet";
+        }
+      }
+
+      notifyListeners();
+    } catch (e) {
+      debugPrint("Parse Error: $e");
+      _statusMessage = "Parse Error: $e";
+      notifyListeners();
     }
   }
 

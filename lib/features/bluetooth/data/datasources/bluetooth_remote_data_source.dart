@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -21,11 +22,24 @@ abstract class BluetoothRemoteDataSource {
     String charUuid,
     List<int> value,
   );
+
+  Future<List<int>> readCharacteristic(
+    BluetoothDevice device,
+    String serviceUuid,
+    String charUuid,
+  );
+
   Stream<List<int>> subscribeToCharacteristic(
     BluetoothDevice device,
     String serviceUuid,
     String charUuid,
   );
+
+  Future<bool> hasService(BluetoothDevice device, String serviceUuid);
+
+  Stream<String> monitorAllServices(BluetoothDevice device);
+
+  Future<List<BluetoothDevice>> get connectedDevices;
 
   // Bluetooth State
   Future<bool> get isBluetoothEnabled;
@@ -36,6 +50,11 @@ abstract class BluetoothRemoteDataSource {
 class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
   // Lock to prevent concurrent reconnection attempts
   bool _isReconnecting = false;
+
+  @override
+  Future<List<BluetoothDevice>> get connectedDevices async {
+    return FlutterBluePlus.connectedDevices;
+  }
 
   @override
   Stream<List<ScanResult>> get scanResults => FlutterBluePlus.scanResults;
@@ -150,15 +169,19 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
       }
 
       debugPrint("Found ${services.length} services.");
+      List<String> debugInfo = [];
       for (var s in services) {
-        debugPrint("Service Found: ${s.uuid}");
+        String serviceInfo = "Service: ${s.uuid}";
+        debugPrint(serviceInfo);
+        debugInfo.add(serviceInfo);
+
         for (var c in s.characteristics) {
-          debugPrint(
-            "  >>> Characteristic: ${c.uuid} | Properties: ${c.properties}",
-          );
+          String charInfo = "  -> Char: ${c.uuid} | Props: ${c.properties}";
+          debugPrint(charInfo);
+          debugInfo.add(charInfo);
         }
       }
-      return services.map((s) => s.uuid.toString()).toList();
+      return debugInfo;
     } catch (e) {
       debugPrint("Error discovering services: $e");
       // Try one more time after a longer delay
@@ -322,24 +345,29 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
 
     List<BluetoothService> services = device.servicesList;
     if (services.isEmpty) {
-      await discoverServices(device);
+      await device.discoverServices();
       services = device.servicesList;
     }
 
     BluetoothCharacteristic? target;
+    final targetGuid = Guid(charUuid);
+
+    // 1. Exact UUID Match
     for (final s in services) {
       for (final c in s.characteristics) {
-        if (c.uuid.toString() == charUuid) {
+        if (c.uuid == targetGuid) {
           target = c;
           break;
         }
       }
       if (target != null) break;
     }
+
+    // 2. Loose Match (String comparison)
     if (target == null) {
       for (final s in services) {
         for (final c in s.characteristics) {
-          if (c.properties.write || c.properties.writeWithoutResponse) {
+          if (c.uuid.toString().toLowerCase() == charUuid.toLowerCase()) {
             target = c;
             break;
           }
@@ -347,8 +375,9 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
         if (target != null) break;
       }
     }
+
     if (target == null) {
-      throw Exception('No writable characteristic found');
+      throw Exception('Characteristic $charUuid not found in device services');
     }
     if (!(target.properties.write || target.properties.writeWithoutResponse)) {
       throw Exception('Selected characteristic not writable');
@@ -356,6 +385,59 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
     debugPrint("Writing bytes to characteristic ${target.uuid}: $value");
     await target.write(value);
     debugPrint("Write successful.");
+  }
+
+  @override
+  Future<List<int>> readCharacteristic(
+    BluetoothDevice device,
+    String serviceUuid,
+    String charUuid,
+  ) async {
+    await _ensureConnected(device);
+
+    List<BluetoothService> services = device.servicesList;
+    if (services.isEmpty) {
+      await device.discoverServices();
+      services = device.servicesList;
+    }
+
+    BluetoothCharacteristic? target;
+    final targetGuid = Guid(charUuid);
+
+    // 1. Exact UUID Match
+    for (final s in services) {
+      for (final c in s.characteristics) {
+        if (c.uuid == targetGuid) {
+          target = c;
+          break;
+        }
+      }
+      if (target != null) break;
+    }
+
+    // 2. Loose Match (String comparison)
+    if (target == null) {
+      for (final s in services) {
+        for (final c in s.characteristics) {
+          if (c.uuid.toString().toLowerCase() == charUuid.toLowerCase()) {
+            target = c;
+            break;
+          }
+        }
+        if (target != null) break;
+      }
+    }
+
+    if (target == null) {
+      throw Exception('Characteristic $charUuid not found in device services');
+    }
+    if (!target.properties.read) {
+      throw Exception('Selected characteristic not readable');
+    }
+    debugPrint("Reading bytes from characteristic ${target.uuid}...");
+    final value = await target.read();
+    debugPrint("Read successful: $value");
+    return value;
   }
 
   @override
@@ -411,5 +493,71 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
     await characteristic.setNotifyValue(true);
 
     yield* stream;
+  }
+
+  @override
+  Future<bool> hasService(BluetoothDevice device, String serviceUuid) async {
+    try {
+      List<BluetoothService> services = device.servicesList;
+      if (services.isEmpty) {
+        try {
+          await device.discoverServices();
+          services = device.servicesList;
+        } catch (_) {
+          // If discovery fails, we can't check
+        }
+      }
+      return services.any((s) => s.uuid.toString() == serviceUuid);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  @override
+  Stream<String> monitorAllServices(BluetoothDevice device) {
+    // This is a debug method to listen to EVERYTHING
+    // We create a controller that will receive events from all characteristics
+    final controller = StreamController<String>.broadcast();
+
+    // Run async logic to set up listeners without blocking the return of the stream
+    Future.microtask(() async {
+      try {
+        // Wait a bit to ensure services are ready
+        if (device.servicesList.isEmpty) {
+          await device.discoverServices();
+        }
+
+        final services = device.servicesList;
+        for (final s in services) {
+          for (final c in s.characteristics) {
+            if (c.properties.notify || c.properties.indicate) {
+              try {
+                // Enable notifications
+                await c.setNotifyValue(true);
+                // Listen to value changes
+                c.onValueReceived.listen((value) {
+                  if (value.isNotEmpty) {
+                    final hex = value
+                        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                        .join(' ');
+                    final log = "[${c.uuid}] Data: $hex";
+                    debugPrint(log);
+                    controller.add(log);
+                  }
+                });
+                controller.add("Subscribed to ${c.uuid}");
+              } catch (e) {
+                debugPrint("Failed to subscribe to ${c.uuid}: $e");
+                controller.add("Error subscribing to ${c.uuid}: $e");
+              }
+            }
+          }
+        }
+      } catch (e) {
+        controller.add("Error discovering services for monitoring: $e");
+      }
+    });
+
+    return controller.stream;
   }
 }
