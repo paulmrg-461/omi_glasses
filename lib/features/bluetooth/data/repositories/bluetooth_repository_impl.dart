@@ -152,6 +152,19 @@ class BluetoothRepositoryImpl implements BluetoothRepository {
   }
 
   @override
+  Future<List<String>> writeToAllWritable(
+    String deviceId,
+    List<int> value,
+  ) async {
+    final devices = await dataSource.connectedDevices;
+    final device = devices.firstWhere(
+      (d) => d.remoteId.toString() == deviceId,
+      orElse: () => throw Exception('Device not connected'),
+    );
+    return await dataSource.writeToAllRelevantCharacteristics(device, value);
+  }
+
+  @override
   Future<List<int>> readCharacteristic(
     String deviceId,
     String serviceUuid,

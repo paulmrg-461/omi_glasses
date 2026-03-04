@@ -46,6 +46,12 @@ abstract class BluetoothRepository {
     List<int> value,
   );
 
+  /// Writes to ALL writable characteristics.
+  Future<List<String>> writeToAllWritable(
+    String deviceId,
+    List<int> value,
+  );
+
   /// Reads bytes from a characteristic.
   Future<List<int>> readCharacteristic(
     String deviceId,

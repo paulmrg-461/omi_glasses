@@ -552,8 +552,20 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> triggerPhoto() async {
-    final targetId = _photoDeviceId ?? _selectedDevice?.id;
-    if (targetId == null) return;
+    String? targetId = _photoDeviceId;
+
+    if (targetId == null && _selectedDevice != null) {
+      final isCapable = await repository.hasService(
+        _selectedDevice!.id,
+        BluetoothConstants.serviceUuid,
+      );
+      if (isCapable) targetId = _selectedDevice!.id;
+    }
+
+    if (targetId == null) {
+      debugPrint("Cannot trigger photo: No photo-capable device.");
+      return;
+    }
 
     // Ensure we are listening
     startImageListenerFor(targetId);
@@ -581,8 +593,20 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> startVideo() async {
-    final targetId = _photoDeviceId ?? _selectedDevice?.id;
-    if (targetId == null) return;
+    String? targetId = _photoDeviceId;
+
+    if (targetId == null && _selectedDevice != null) {
+      final isCapable = await repository.hasService(
+        _selectedDevice!.id,
+        BluetoothConstants.serviceUuid,
+      );
+      if (isCapable) targetId = _selectedDevice!.id;
+    }
+
+    if (targetId == null) {
+      debugPrint("Cannot start video: No video-capable device.");
+      return;
+    }
 
     // Ensure we are listening
     startImageListenerFor(targetId);
@@ -646,7 +670,23 @@ class BluetoothViewModel extends ChangeNotifier {
   }
 
   Future<void> startAudio() async {
-    if (_selectedDevice == null) return;
+    // Determine target device: _audioDeviceId takes precedence, then _selectedDevice
+    String? targetId = _audioDeviceId;
+    if (targetId == null && _selectedDevice != null) {
+      // Check if selected device is audio capable
+      final isAudioCapable = await repository.hasService(
+        _selectedDevice!.id,
+        BluetoothConstants.serviceUuid,
+      );
+      if (isAudioCapable) {
+        targetId = _selectedDevice!.id;
+      }
+    }
+
+    if (targetId == null) {
+      debugPrint("Cannot start audio: No audio-capable device selected.");
+      return;
+    }
 
     // Request microphone permission (required for playAndRecord session)
     // final status = await Permission.microphone.request();
@@ -678,9 +718,9 @@ class BluetoothViewModel extends ChangeNotifier {
       _statusMessage = "Starting audio stream...";
       notifyListeners();
 
-      debugPrint("Subscribing to repository audio stream...");
+      debugPrint("Subscribing to repository audio stream from $targetId...");
       _audioSubscription = repository
-          .startAudioStream(_selectedDevice!.id)
+          .startAudioStream(targetId)
           .listen(
             (data) {
               if (_audioPlayer != null && _audioPlayer!.isPlaying) {
@@ -967,6 +1007,7 @@ class BluetoothViewModel extends ChangeNotifier {
 
       // Always try AE01 as well for Y25 bands, as they often have both but listen on AE01
       // If NUS succeeded, we can skip logging AE01 failures to reduce noise
+      bool sentToAe01 = false;
       try {
         await repository.writeCharacteristicBytes(
           _selectedDevice!.id,
@@ -975,6 +1016,7 @@ class BluetoothViewModel extends ChangeNotifier {
           bytes,
         );
         _debugLogs.add("Sent to AE01 (Success)");
+        sentToAe01 = true;
       } catch (e2) {
         // Log AE01 error if it's NOT a "not supported" error (to avoid noise)
         // OR if NUS also failed (so we know both failed)
@@ -985,6 +1027,41 @@ class BluetoothViewModel extends ChangeNotifier {
           _debugLogs.add("AE01 failed: $e2");
         }
       }
+
+      // If both specific writes failed (or even if they "succeeded" but we are debugging),
+      // we can try the "Broadcast" method if the user really wants to force it.
+      // But let's do it if specific writes failed OR if we are in a desperate "init" sequence.
+      if (!sentToNus && !sentToAe01) {
+        _debugLogs.add(
+          "Specific writes failed. Broadcasting to ALL writable characteristics...",
+        );
+        try {
+          final logs = await repository.writeToAllWritable(
+            _selectedDevice!.id,
+            bytes,
+          );
+          _debugLogs.addAll(logs);
+        } catch (e) {
+          _debugLogs.add("Broadcast write failed: $e");
+        }
+      } else {
+        // Even if one succeeded, let's try AE30 specifically if it wasn't the one we just hit.
+        // Actually, let's just use the broadcast method as a fallback always for now in debug mode
+        // to ensure we hit the right one.
+        // Or better: Add a specific check for AE30 service.
+        try {
+          await repository.writeCharacteristicBytes(
+            _selectedDevice!.id,
+            "0000ae30-0000-1000-8000-00805f9b34fb",
+            "0000ae01-0000-1000-8000-00805f9b34fb",
+            bytes,
+          );
+          _debugLogs.add("Sent to AE30/AE01 (Success)");
+        } catch (e) {
+          // Ignore AE30 failure if others worked
+        }
+      }
+
       notifyListeners();
     } catch (e) {
       _debugLogs.add("Invalid Hex: $e");
@@ -994,10 +1071,20 @@ class BluetoothViewModel extends ChangeNotifier {
 
   Future<void> triggerY25Init() async {
     // Try a few common init sequences for Y25 / Lefun / JYou
-    _debugLogs.add("Starting Y25 Init Sequence...");
+    _debugLogs.add("Starting Y25 Init Sequence (BROADCAST)...");
 
     // 1. Lefun Magic String: AB 00 04 00 00 00 80 (Bind/Login)
-    await sendRawDebugCommand("AB 00 04 00 00 00 80");
+    // Use Broadcast to ensure it hits the right write characteristic
+    try {
+      final bindCmd = [0xAB, 0x00, 0x04, 0x00, 0x00, 0x00, 0x80];
+      final logs = await repository.writeToAllWritable(
+        _selectedDevice!.id,
+        bindCmd,
+      );
+      _debugLogs.addAll(logs);
+    } catch (e) {
+      _debugLogs.add("Bind Broadcast Failed: $e");
+    }
     await Future.delayed(const Duration(milliseconds: 500));
 
     // 2. Generic Enable: 01 00
@@ -1032,6 +1119,55 @@ class BluetoothViewModel extends ChangeNotifier {
     // 73 15 01 (Start)
     await Future.delayed(const Duration(milliseconds: 500));
     await sendRawDebugCommand("73 15 01");
+
+    // 9. Try CD Protocol (FitPro / LT716)
+    // CD 01 01 01 (Bind?)
+    await Future.delayed(const Duration(milliseconds: 500));
+    try {
+      final fitProBind = [0xCD, 0x01, 0x01, 0x01];
+      final logs = await repository.writeToAllWritable(
+        _selectedDevice!.id,
+        fitProBind,
+      );
+      _debugLogs.addAll(logs);
+    } catch (e) {
+      _debugLogs.add("FitPro Bind Broadcast Failed: $e");
+    }
+
+    // CD 00 11 (Request Data?)
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("CD 00 11");
+
+    // CD 02 ... (Time Sync) - Proper CD Protocol Time Sync
+    // Try CD 02 instead of CD 00 08
+    await Future.delayed(const Duration(milliseconds: 500));
+    final cdTimeCmd2 =
+        "CD 02 ${year.toRadixString(16).padLeft(2, '0')} ${now.month.toRadixString(16).padLeft(2, '0')} ${now.day.toRadixString(16).padLeft(2, '0')} ${now.hour.toRadixString(16).padLeft(2, '0')} ${now.minute.toRadixString(16).padLeft(2, '0')} ${now.second.toRadixString(16).padLeft(2, '0')}";
+    await sendRawDebugCommand(cdTimeCmd2);
+
+    // 10. Try FitPro Real-time Measurement Enable
+    // CD 00 31 (Enable Real-time)
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("CD 00 31");
+
+    // Start HR explicitly (CD 00 21 01)
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("CD 00 21 01");
+
+    // 11. Try "Find Band" command (often wakes it up)
+    // CD 00 04
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("CD 00 04");
+
+    // 12. Try 1A Protocol (Rare FitPro variant)
+    // 1A 00 00
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("1A 00 00");
+
+    // 13. Try simple ping (Keep Alive)
+    // CD 00 00
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("CD 00 00");
   }
 
   Future<void> triggerHeartRateStart() async {
@@ -1396,8 +1532,8 @@ class BluetoothViewModel extends ChangeNotifier {
 
   void startDebugListener(String deviceId) {
     _debugSubscription?.cancel();
-    _debugLogs.clear();
-    _debugLogs.add("Starting debug monitor for $deviceId...");
+    // _debugLogs.clear(); // Keep history for debugging context
+    _debugLogs.add("--- STARTING DEBUG MONITOR ($deviceId) ---");
     notifyListeners();
 
     try {
@@ -1405,7 +1541,8 @@ class BluetoothViewModel extends ChangeNotifier {
           .monitorAllServices(deviceId)
           .listen(
             (log) {
-              if (_debugLogs.length >= 100) {
+              if (_debugLogs.length >= 500) {
+                // Increased limit for detailed logs
                 _debugLogs.removeAt(0);
               }
               _debugLogs.add(log);
@@ -1496,13 +1633,14 @@ class BluetoothViewModel extends ChangeNotifier {
         }
 
         // AB 00 05 ... (Measurement Data)
-        if (bytes.length >= 6) {
+        if (bytes.length >= 6 &&
+            (bytes[2] == 0x05 || bytes[2] == 0x03 || bytes[2] == 0x11)) {
           // Try multiple offsets for HR
           // Usually byte 4 or 5
           int hr = 0;
           if (bytes[4] > 30 && bytes[4] < 220)
             hr = bytes[4];
-          else if (bytes[5] > 30 && bytes[5] < 220)
+          else if (bytes.length > 5 && bytes[5] > 30 && bytes[5] < 220)
             hr = bytes[5];
 
           if (hr > 0) {
@@ -1524,6 +1662,12 @@ class BluetoothViewModel extends ChangeNotifier {
 
       // 3. Protocol 0x73 (Detected in logs)
       if (bytes.isNotEmpty && bytes[0] == 0x73) {
+        // 73 01 ... (Ack / Connected)
+        if (bytes.length >= 2 && bytes[1] == 0x01) {
+          _statusMessage = "Y25 Connected (Ack)";
+          _debugLogs.add("Y25 Ack Received (73 01)");
+          handled = true;
+        }
         // 73 2C ... (Heart Rate?)
         if (bytes.length >= 3 && bytes[1] == 0x2C) {
           final hr = bytes[2];
@@ -1545,7 +1689,36 @@ class BluetoothViewModel extends ChangeNotifier {
         }
       }
 
-      // 4. Fallback: Embedded Scan (if not strictly handled or just to be safe)
+      // 4. Protocol 0xBC / 0xCD (FitPro / LT716)
+      if (bytes.isNotEmpty && (bytes[0] == 0xBC || bytes[0] == 0xCD)) {
+        // CD 01 01 01 (Response to Bind?)
+        if (bytes.length >= 4 && bytes[1] == 0x01 && bytes[2] == 0x01) {
+          _statusMessage = "FitPro Connected";
+          _debugLogs.add("FitPro Bind OK");
+          handled = true;
+        }
+        // BC 02 01 00 ... (Bind OK / Response)
+        if (bytes.length >= 3 && bytes[1] == 0x02) {
+          _debugLogs.add("Received BC Protocol Response (Bind OK?)");
+          handled = true;
+        }
+        // Data Packets (Often start with CD 00 ...)
+        // If it's a stats packet, it might be longer.
+        if (bytes.length > 5) {
+          // Heuristic: Look for HR-like values
+          for (int i = 1; i < bytes.length; i++) {
+            if (bytes[i] > 40 && bytes[i] < 200) {
+              // Only update if we don't have a valid HR yet or it changed
+              if (_heartRate == null || (_heartRate != bytes[i])) {
+                // _heartRate = bytes[i]; // Too risky to auto-assign without ID
+                // _debugLogs.add("Potential HR in BC: ${bytes[i]} (at index $i)");
+              }
+            }
+          }
+        }
+      }
+
+      // 6. Fallback: Embedded Scan (if not strictly handled or just to be safe)
       if (!handled && bytes.length > 2) {
         // Look for sequence [0x73, 0x2C, VALUE] anywhere
         for (int i = 0; i < bytes.length - 2; i++) {
@@ -1568,7 +1741,21 @@ class BluetoothViewModel extends ChangeNotifier {
         }
       }
 
-      // 5. Ultimate Fallback: Just show the raw data in status if it looks interesting
+      // 7. Universal HR Finder (Last Resort for "Truncated" feeling)
+      // If we still haven't handled it, and it's a "Notify" characteristic (implied by context)
+      // Check if it's a simple 1-2 byte packet that might be HR
+      if (!handled && bytes.length <= 4) {
+        if (bytes.length == 2 &&
+            bytes[0] == 0 &&
+            bytes[1] > 40 &&
+            bytes[1] < 200) {
+          _heartRate = bytes[1];
+          _debugLogs.add("Inferred HR (Short): ${bytes[1]}");
+          handled = true;
+        }
+      }
+
+      // 8. Ultimate Fallback: Just show the raw data in status if it looks interesting
       if (!handled) {
         if (bytes.isNotEmpty) {
           _statusMessage = "Raw: ${bytes.take(5).join(' ')}...";

@@ -23,6 +23,13 @@ abstract class BluetoothRemoteDataSource {
     List<int> value,
   );
 
+  /// Writes bytes to ALL writable characteristics found on the device.
+  /// This is a "Broadcast" method for debugging when the correct characteristic is unknown.
+  Future<List<String>> writeToAllRelevantCharacteristics(
+    BluetoothDevice device,
+    List<int> value,
+  );
+
   Future<List<int>> readCharacteristic(
     BluetoothDevice device,
     String serviceUuid,
@@ -388,6 +395,44 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
   }
 
   @override
+  Future<List<String>> writeToAllRelevantCharacteristics(
+    BluetoothDevice device,
+    List<int> value,
+  ) async {
+    await _ensureConnected(device);
+
+    // Ensure services are discovered
+    if (device.servicesList.isEmpty) {
+      await device.discoverServices();
+    }
+
+    final List<String> log = [];
+    final services = device.servicesList;
+
+    log.add("Starting broadcast write...");
+
+    for (final s in services) {
+      for (final c in s.characteristics) {
+        if (c.properties.write || c.properties.writeWithoutResponse) {
+          try {
+            await c.write(
+              value,
+              withoutResponse: c.properties.writeWithoutResponse,
+            );
+            log.add("Success: ${c.uuid} (Service: ${s.uuid})");
+            debugPrint("Broadcast Write to ${c.uuid} OK");
+          } catch (e) {
+            log.add("Failed: ${c.uuid} ($e)");
+            debugPrint("Broadcast Write to ${c.uuid} Failed: $e");
+          }
+        }
+      }
+    }
+
+    return log;
+  }
+
+  @override
   Future<List<int>> readCharacteristic(
     BluetoothDevice device,
     String serviceUuid,
@@ -518,6 +563,15 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
     // This is a debug method to listen to EVERYTHING
     // We create a controller that will receive events from all characteristics
     final controller = StreamController<String>.broadcast();
+    final List<StreamSubscription> subscriptions = [];
+
+    controller.onCancel = () {
+      debugPrint("Stopping debug monitor for ${device.remoteId}");
+      for (final sub in subscriptions) {
+        sub.cancel();
+      }
+      subscriptions.clear();
+    };
 
     // Run async logic to set up listeners without blocking the return of the stream
     Future.microtask(() async {
@@ -528,14 +582,26 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
         }
 
         final services = device.servicesList;
+        controller.add("Discovered ${services.length} services:");
+
         for (final s in services) {
+          controller.add("Service: ${s.uuid}");
           for (final c in s.characteristics) {
+            final props = [];
+            if (c.properties.read) props.add("Read");
+            if (c.properties.write) props.add("Write");
+            if (c.properties.writeWithoutResponse) props.add("WriteNoResp");
+            if (c.properties.notify) props.add("Notify");
+            if (c.properties.indicate) props.add("Indicate");
+
+            controller.add("  - Char: ${c.uuid} [${props.join(', ')}]");
+
             if (c.properties.notify || c.properties.indicate) {
               try {
                 // Enable notifications
                 await c.setNotifyValue(true);
                 // Listen to value changes
-                c.onValueReceived.listen((value) {
+                final sub = c.onValueReceived.listen((value) {
                   if (value.isNotEmpty) {
                     final hex = value
                         .map((b) => b.toRadixString(16).padLeft(2, '0'))
@@ -545,10 +611,11 @@ class BluetoothRemoteDataSourceImpl implements BluetoothRemoteDataSource {
                     controller.add(log);
                   }
                 });
-                controller.add("Subscribed to ${c.uuid}");
+                subscriptions.add(sub);
+                controller.add("    -> Subscribed OK");
               } catch (e) {
                 debugPrint("Failed to subscribe to ${c.uuid}: $e");
-                controller.add("Error subscribing to ${c.uuid}: $e");
+                controller.add("    -> Error subscribing: $e");
               }
             }
           }
