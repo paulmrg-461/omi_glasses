@@ -1672,19 +1672,47 @@ class BluetoothViewModel extends ChangeNotifier {
         if (bytes.length >= 3 && bytes[1] == 0x2C) {
           final hr = bytes[2];
           if (hr > 0) {
-            _heartRate = hr;
-            _statusMessage = "Y25(73) HR: $hr BPM";
-            _debugLogs.add("Parsed HR (73): $hr");
-            handled = true;
+            if (hr > 40 && hr < 220) {
+              _heartRate = hr;
+              _statusMessage = "Y25(73) HR: $hr BPM";
+              _debugLogs.add("Parsed HR (73): $hr");
+              handled = true;
+            } else if (bytes.length > 3 && bytes[3] > 40 && bytes[3] < 220) {
+              // Maybe byte[3] is the value?
+              _heartRate = bytes[3];
+              _statusMessage = "Y25(73) HR: ${bytes[3]} BPM";
+              _debugLogs.add("Parsed HR (73-alt): ${bytes[3]}");
+              handled = true;
+            } else {
+              _debugLogs.add("Ignored HR (73): $hr (Status/Invalid)");
+            }
           }
         }
         // 73 2B ... (SPO2?)
         if (bytes.length >= 3 && bytes[1] == 0x2B) {
           final spo2 = bytes[2];
           if (spo2 > 0 && spo2 <= 100) {
-            _bloodOxygen = spo2;
-            _debugLogs.add("Parsed SpO2 (73): $spo2");
-            handled = true;
+            if (spo2 >= 80) {
+              _bloodOxygen = spo2;
+              _debugLogs.add("Parsed SpO2 (73): $spo2");
+              handled = true;
+            } else if (bytes.length > 3 && bytes[3] >= 80 && bytes[3] <= 100) {
+              _bloodOxygen = bytes[3];
+              _debugLogs.add("Parsed SpO2 (73-alt): ${bytes[3]}");
+              handled = true;
+            } else if (bytes.length > 4 && bytes[4] >= 80 && bytes[4] <= 100) {
+              _bloodOxygen = bytes[4];
+              _debugLogs.add("Parsed SpO2 (73-byte4): ${bytes[4]}");
+              handled = true;
+            } else {
+              // Handle Status Codes (32/33 likely "Measuring" or "Sensor Contact")
+              if (spo2 == 32 || spo2 == 33) {
+                _statusMessage = "SpO2: Midiendo... (Code $spo2)";
+                _debugLogs.add("SpO2 Status: Measuring ($spo2)");
+              } else {
+                _debugLogs.add("Ignored SpO2 (73): $spo2 (Status/Invalid)");
+              }
+            }
           }
         }
       }

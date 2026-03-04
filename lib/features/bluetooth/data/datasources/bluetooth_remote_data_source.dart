@@ -38,6 +38,7 @@ abstract class BluetoothRemoteDataSource {
 
   Stream<List<int>> subscribeToCharacteristic(
     BluetoothDevice device,
+    
     String serviceUuid,
     String charUuid,
   );
