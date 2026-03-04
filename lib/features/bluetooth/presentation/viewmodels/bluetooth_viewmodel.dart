@@ -850,14 +850,29 @@ class BluetoothViewModel extends ChangeNotifier {
 
     debugPrint("Starting Health Monitoring (Generic/Y25)...");
 
-    // In a real implementation with proprietary UUIDs, we would subscribe here.
-    // Since we don't have them yet, we just ensure the timer is running for future polling logic.
-    _healthDataTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+    // Poll every 5 seconds to keep data flowing (Fix for "Only 1 value")
+    _healthDataTimer = Timer.periodic(const Duration(seconds: 5), (
+      timer,
+    ) async {
       if (_selectedDevice == null) {
         timer.cancel();
         return;
       }
-      // Placeholder for polling logic if needed
+
+      // Alternate between different "Keep Alive" / "Request Data" commands
+      // to cover different device variants (Y25 vs FitPro)
+
+      // 1. FitPro Data Request
+      await sendRawDebugCommand("CD 00 11");
+
+      // 2. Y25 HR Request (only if we haven't seen updates recently?)
+      // For now, let's just send it to be safe.
+      await Future.delayed(const Duration(milliseconds: 500));
+      await sendRawDebugCommand("AB 00 05 00 00 00 80");
+
+      // 3. SpO2 Request (CD 00 23 01) - Force SpO2 measurement
+      await Future.delayed(const Duration(milliseconds: 500));
+      await sendRawDebugCommand("CD 00 23 01");
     });
   }
 
@@ -1153,6 +1168,14 @@ class BluetoothViewModel extends ChangeNotifier {
     // Start HR explicitly (CD 00 21 01)
     await Future.delayed(const Duration(milliseconds: 500));
     await sendRawDebugCommand("CD 00 21 01");
+
+    // Start SpO2 explicitly (CD 00 23 01) - Added for SpO2 support
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("CD 00 23 01");
+
+    // Start BP explicitly (CD 00 22 01) - Added just in case
+    await Future.delayed(const Duration(milliseconds: 500));
+    await sendRawDebugCommand("CD 00 22 01");
 
     // 11. Try "Find Band" command (often wakes it up)
     // CD 00 04
