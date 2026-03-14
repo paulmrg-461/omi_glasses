@@ -1,36 +1,73 @@
-class MemoryEntry {
+import 'package:equatable/equatable.dart';
+
+class MemoryEntry extends Equatable {
   final String id;
   final DateTime timestamp;
-  final String sourceDeviceId;
-  final String transcript;
+  final String transcriptOriginal;
   final String summary;
-  final List<String> suggestions;
-  MemoryEntry({
+  final List<ActionItem> actionItems;
+  final List<String> risks;
+
+  const MemoryEntry({
     required this.id,
     required this.timestamp,
-    required this.sourceDeviceId,
-    required this.transcript,
+    required this.transcriptOriginal,
     required this.summary,
-    required this.suggestions,
+    required this.actionItems,
+    required this.risks,
   });
 
-  Map<String, dynamic> toMap() => {
-    'id': id,
-    'timestamp': timestamp.toIso8601String(),
-    'sourceDeviceId': sourceDeviceId,
-    'transcript': transcript,
-    'summary': summary,
-    'suggestions': suggestions,
-  };
+  factory MemoryEntry.fromJson(Map<String, dynamic> json) {
+    final interpretation = json['interpretation'] as Map<String, dynamic>? ?? {};
+    final actionItemsList = interpretation['action_items'] as List<dynamic>? ?? [];
+    final risksList = interpretation['risks'] as List<dynamic>? ?? [];
 
-  static MemoryEntry fromMap(Map<dynamic, dynamic> m) {
     return MemoryEntry(
-      id: m['id'] as String,
-      timestamp: DateTime.parse(m['timestamp'] as String),
-      sourceDeviceId: m['sourceDeviceId'] as String,
-      transcript: m['transcript']?.toString() ?? '',
-      summary: m['summary'] as String,
-      suggestions: (m['suggestions'] as List).map((e) => e.toString()).toList(),
+      id: json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      timestamp: json['created_at'] != null
+          ? DateTime.parse(json['created_at'] as String)
+          : DateTime.now(),
+      transcriptOriginal: json['transcript_original']?.toString() ?? '',
+      summary: interpretation['summary']?.toString() ?? '',
+      actionItems: actionItemsList
+          .map((item) => ActionItem.fromJson(item as Map<String, dynamic>))
+          .toList(),
+      risks: risksList.map((risk) => risk.toString()).toList(),
     );
   }
+
+  @override
+  List<Object?> get props => [
+        id,
+        timestamp,
+        transcriptOriginal,
+        summary,
+        actionItems,
+        risks,
+      ];
 }
+
+class ActionItem extends Equatable {
+  final String title;
+  final String description;
+  final List<String> steps;
+
+  const ActionItem({
+    required this.title,
+    required this.description,
+    required this.steps,
+  });
+
+  factory ActionItem.fromJson(Map<String, dynamic> json) {
+    final stepsList = json['steps'] as List<dynamic>? ?? [];
+    return ActionItem(
+      title: json['title']?.toString() ?? '',
+      description: json['description']?.toString() ?? '',
+      steps: stepsList.map((step) => step.toString()).toList(),
+    );
+  }
+
+  @override
+  List<Object?> get props => [title, description, steps];
+}
+

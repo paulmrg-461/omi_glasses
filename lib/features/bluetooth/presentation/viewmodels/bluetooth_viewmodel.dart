@@ -1561,10 +1561,10 @@ class BluetoothViewModel extends ChangeNotifier {
       final entry = MemoryEntry(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         timestamp: DateTime.now(),
-        sourceDeviceId: _audioDeviceId ?? _selectedDevice?.id ?? '',
-        transcript: transcript,
+        transcriptOriginal: transcript,
         summary: summary,
-        suggestions: suggestions,
+        actionItems: suggestions.map((s) => ActionItem(title: s, description: '', steps: [])).toList(),
+        risks: [],
       );
       await memoryRepository.save(entry);
       _statusMessage = "Resumen: $summary";
