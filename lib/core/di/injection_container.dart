@@ -19,6 +19,9 @@ import '../../features/audio/domain/repositories/audio_repository.dart'
 import '../../features/photo/domain/repositories/photo_repository.dart';
 import '../../features/photo/data/datasources/photo_local_data_source.dart';
 import '../../features/photo/data/repositories/photo_repository_impl.dart';
+import '../../features/chat/domain/repositories/chat_repository.dart';
+import '../../features/chat/data/repositories/gemini_chat_repository.dart';
+import '../../features/chat/presentation/viewmodels/chat_viewmodel.dart';
 import 'package:http/http.dart' as http;
 
 final sl = GetIt.instance;
@@ -81,4 +84,14 @@ Future<void> init() async {
     () => PhotoRepositoryImpl(local: sl()),
   );
   await sl<PhotoLocalDataSource>().init();
+
+  // Chat
+  sl.registerLazySingleton<ChatRepository>(() => GeminiChatRepository());
+  sl.registerFactory(
+    () => ChatViewModel(
+      chatRepository: sl(),
+      memoryRepository: sl(),
+      settingsRepository: sl(),
+    ),
+  );
 }

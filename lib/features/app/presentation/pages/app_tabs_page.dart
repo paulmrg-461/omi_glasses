@@ -9,6 +9,7 @@ import '../../../memory/domain/entities/memory_entry.dart';
 import '../../../memory/domain/repositories/memory_repository.dart';
 import '../../../photo/domain/entities/photo_entry.dart';
 import '../../../photo/domain/repositories/photo_repository.dart';
+import '../../../chat/presentation/pages/chat_page.dart';
 import '../../../settings/presentation/bloc/settings_bloc.dart';
 import '../../../settings/presentation/pages/settings_page.dart';
 
@@ -78,7 +79,9 @@ class _AppTabsPageState extends State<AppTabsPage> {
                           child: ExpansionTile(
                             title: Text(
                               m.summary.isNotEmpty ? m.summary : 'Sin resumen',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             subtitle: Text(
                               m.transcriptOriginal.isNotEmpty
@@ -93,34 +96,59 @@ class _AppTabsPageState extends State<AppTabsPage> {
                             children: [
                               if (m.actionItems.isNotEmpty) ...[
                                 const ListTile(
-                                  title: Text('Acciones', style: TextStyle(fontWeight: FontWeight.bold)),
+                                  title: Text(
+                                    'Acciones',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                   dense: true,
                                 ),
-                                ...m.actionItems.map((action) => ListTile(
-                                  leading: const Icon(Icons.check_circle_outline, size: 20),
-                                  title: Text(action.title),
-                                  subtitle: Text(action.description),
-                                  dense: true,
-                                )),
+                                ...m.actionItems.map(
+                                  (action) => ListTile(
+                                    leading: const Icon(
+                                      Icons.check_circle_outline,
+                                      size: 20,
+                                    ),
+                                    title: Text(action.title),
+                                    subtitle: Text(action.description),
+                                    dense: true,
+                                  ),
+                                ),
                               ],
                               if (m.risks.isNotEmpty) ...[
                                 const ListTile(
-                                  title: Text('Riesgos', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                                  title: Text(
+                                    'Riesgos',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.red,
+                                    ),
+                                  ),
                                   dense: true,
                                 ),
-                                ...m.risks.map((risk) => ListTile(
-                                  leading: const Icon(Icons.warning_amber_rounded, size: 20, color: Colors.red),
-                                  title: Text(risk),
-                                  dense: true,
-                                )),
+                                ...m.risks.map(
+                                  (risk) => ListTile(
+                                    leading: const Icon(
+                                      Icons.warning_amber_rounded,
+                                      size: 20,
+                                      color: Colors.red,
+                                    ),
+                                    title: Text(risk),
+                                    dense: true,
+                                  ),
+                                ),
                               ],
                               Padding(
                                 padding: const EdgeInsets.all(16.0),
                                 child: Text(
                                   m.transcriptOriginal,
-                                  style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.grey),
+                                  style: const TextStyle(
+                                    fontStyle: FontStyle.italic,
+                                    color: Colors.grey,
+                                  ),
                                 ),
-                              )
+                              ),
                             ],
                           ),
                         );
@@ -166,6 +194,7 @@ class _AppTabsPageState extends State<AppTabsPage> {
                       },
                     ),
             ),
+            const ChatPage(),
             BlocProvider(
               create: (_) => di.sl<SettingsBloc>()..add(LoadSettings()),
               child: const SettingsPage(),
@@ -186,6 +215,7 @@ class _AppTabsPageState extends State<AppTabsPage> {
             icon: Icon(Icons.photo_library),
             label: 'Fotos',
           ),
+          NavigationDestination(icon: Icon(Icons.chat), label: 'Chat'),
           NavigationDestination(icon: Icon(Icons.settings), label: 'Ajustes'),
         ],
         onDestinationSelected: (i) {

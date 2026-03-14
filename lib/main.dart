@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/di/injection_container.dart' as di;
 import 'features/bluetooth/presentation/viewmodels/bluetooth_viewmodel.dart';
+import 'features/chat/presentation/viewmodels/chat_viewmodel.dart';
 import 'features/app/presentation/pages/app_tabs_page.dart';
 
 void main() async {
@@ -24,6 +25,7 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => di.sl<BluetoothViewModel>()),
+        ChangeNotifierProvider(create: (_) => di.sl<ChatViewModel>()),
       ],
       child: MaterialApp(
         title: 'OMI Glasses',

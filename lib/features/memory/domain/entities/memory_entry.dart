@@ -18,12 +18,16 @@ class MemoryEntry extends Equatable {
   });
 
   factory MemoryEntry.fromJson(Map<String, dynamic> json) {
-    final interpretation = json['interpretation'] as Map<String, dynamic>? ?? {};
-    final actionItemsList = interpretation['action_items'] as List<dynamic>? ?? [];
+    final interpretation =
+        json['interpretation'] as Map<String, dynamic>? ?? {};
+    final actionItemsList =
+        interpretation['action_items'] as List<dynamic>? ?? [];
     final risksList = interpretation['risks'] as List<dynamic>? ?? [];
 
     return MemoryEntry(
-      id: json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      id:
+          json['id']?.toString() ??
+          DateTime.now().millisecondsSinceEpoch.toString(),
       timestamp: json['created_at'] != null
           ? DateTime.parse(json['created_at'] as String)
           : DateTime.now(),
@@ -36,15 +40,28 @@ class MemoryEntry extends Equatable {
     );
   }
 
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'created_at': timestamp.toIso8601String(),
+      'transcript_original': transcriptOriginal,
+      'interpretation': {
+        'summary': summary,
+        'action_items': actionItems.map((item) => item.toMap()).toList(),
+        'risks': risks,
+      },
+    };
+  }
+
   @override
   List<Object?> get props => [
-        id,
-        timestamp,
-        transcriptOriginal,
-        summary,
-        actionItems,
-        risks,
-      ];
+    id,
+    timestamp,
+    transcriptOriginal,
+    summary,
+    actionItems,
+    risks,
+  ];
 }
 
 class ActionItem extends Equatable {
@@ -67,7 +84,10 @@ class ActionItem extends Equatable {
     );
   }
 
+  Map<String, dynamic> toMap() {
+    return {'title': title, 'description': description, 'steps': steps};
+  }
+
   @override
   List<Object?> get props => [title, description, steps];
 }
-
