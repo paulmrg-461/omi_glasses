@@ -13,6 +13,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/status.dart' as status;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../../domain/entities/bluetooth_device_entity.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
 import '../../../settings/domain/repositories/settings_repository.dart';
@@ -718,22 +719,26 @@ class BluetoothViewModel extends ChangeNotifier {
 
       // Ensure ws protocol and proper endpoint
       if (url.isEmpty) {
-        url = "ws://192.168.1.15:8989/ws/audio";
-      } else {
-        if (url.startsWith('http://')) {
-          url = url.replaceFirst('http://', 'ws://');
-        } else if (url.startsWith('https://')) {
-          url = url.replaceFirst('https://', 'wss://');
-        }
+        // Use .env default if available
+        url = dotenv.get(
+          'LOCAL_MODELS_WS_URL',
+          fallback: "ws://192.168.0.17:8989",
+        );
+      }
 
-        if (!url.startsWith('ws')) {
-          url = 'ws://$url';
-        }
+      if (url.startsWith('http://')) {
+        url = url.replaceFirst('http://', 'ws://');
+      } else if (url.startsWith('https://')) {
+        url = url.replaceFirst('https://', 'wss://');
+      }
 
-        if (!url.contains('/ws/audio')) {
-          final separator = url.endsWith('/') ? '' : '/';
-          url = '$url${separator}ws/audio';
-        }
+      if (!url.startsWith('ws')) {
+        url = 'ws://$url';
+      }
+
+      if (!url.contains('/ws/audio')) {
+        final separator = url.endsWith('/') ? '' : '/';
+        url = '$url${separator}ws/audio';
       }
 
       debugPrint("Connecting to Audio WebSocket: $url");
@@ -1580,6 +1585,14 @@ class BluetoothViewModel extends ChangeNotifier {
     Uint8List imageBytes,
     String visionUrl,
   ) async {
+    // Use .env default if provided URL is empty
+    if (visionUrl.isEmpty) {
+      visionUrl = dotenv.get(
+        'LOCAL_MODELS_API_URL',
+        fallback: "http://192.168.0.17:8989",
+      );
+    }
+
     final uri = _buildEndpointUri(visionUrl, 'vision/frame_b64');
     final body = {
       "session_id": _selectedDevice?.id ?? _photoDeviceId ?? '',
@@ -1622,6 +1635,14 @@ class BluetoothViewModel extends ChangeNotifier {
     Uint8List pcmData,
     String audioUrl,
   ) async {
+    // Use .env default if provided URL is empty
+    if (audioUrl.isEmpty) {
+      audioUrl = dotenv.get(
+        'LOCAL_MODELS_WS_URL',
+        fallback: "ws://192.168.0.17:8989",
+      );
+    }
+
     // Force ws/wss scheme via string manipulation to be absolutely sure
     String wsUrlStr = audioUrl.trim();
     if (wsUrlStr.startsWith('http://')) {

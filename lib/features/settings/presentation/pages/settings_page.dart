@@ -136,7 +136,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 const Text('Fuente de Audio'),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: devices.any((d) => d.id == s.audioDeviceId)
+                  initialValue: devices.any((d) => d.id == s.audioDeviceId)
                       ? s.audioDeviceId
                       : null,
                   items: devices
@@ -156,7 +156,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 const Text('Fuente de Fotos'),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
-                  value: devices.any((d) => d.id == s.photoDeviceId)
+                  initialValue: devices.any((d) => d.id == s.photoDeviceId)
                       ? s.photoDeviceId
                       : null,
                   items: devices
