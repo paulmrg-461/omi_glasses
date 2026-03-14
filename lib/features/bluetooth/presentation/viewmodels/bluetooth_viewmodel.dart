@@ -11,6 +11,8 @@ import 'package:flutter_sound/flutter_sound.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:http/http.dart' as http;
+import 'package:web_socket_channel/io.dart';
+import 'package:web_socket_channel/status.dart' as status;
 import '../../domain/entities/bluetooth_device_entity.dart';
 import '../../domain/repositories/bluetooth_repository.dart';
 import '../../../settings/domain/repositories/settings_repository.dart';
@@ -82,6 +84,11 @@ class BluetoothViewModel extends ChangeNotifier {
   // Use seconds for faster feedback during testing
   final int _silenceSeconds = 15;
 
+  // Real-time WebSocket for continuous audio
+  IOWebSocketChannel? _audioWsChannel;
+  bool _isWsReady = false;
+  String? _currentWsSessionId;
+
   // Role assignments
   String? _audioDeviceId;
   String? get audioDeviceId => _audioDeviceId;
@@ -89,6 +96,7 @@ class BluetoothViewModel extends ChangeNotifier {
   String? get photoDeviceId => _photoDeviceId;
   Timer? _photoTimer;
   Timer? _healthDataTimer;
+  Timer? _watchdogTimer;
 
   // Battery State
   int? _batteryLevel;
@@ -137,7 +145,48 @@ class BluetoothViewModel extends ChangeNotifier {
     required this.audioRepository,
     required this.memoryRepository,
     required this.photoRepository,
-  });
+  }) {
+    _startWatchdog();
+  }
+
+  void _startWatchdog() {
+    _watchdogTimer?.cancel();
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      // 1. Ensure Audio is streaming if a device is assigned
+      if (_audioDeviceId != null && _audioDeviceId!.isNotEmpty) {
+        if (!_isAudioEnabled || _audioSubscription == null) {
+          debugPrint(
+            "Watchdog: Audio should be enabled but isn't. Restarting...",
+          );
+          // We use startAudio() directly which uses _audioDeviceId
+          await startAudio();
+        }
+      }
+
+      // 2. Ensure WebSocket is connected if audio is enabled
+      if (_isAudioEnabled && (_audioWsChannel == null || !_isWsReady)) {
+        debugPrint(
+          "Watchdog: WebSocket should be connected but isn't. Re-init...",
+        );
+        await _initAudioWs();
+      }
+
+      // 3. Health data polling "Keep Alive" for Y25
+      final healthDevice = _connectedDevices.firstWhere(
+        (d) =>
+            d.name.toUpperCase().contains("Y25") ||
+            d.name.toUpperCase().contains("LEFUN"),
+        orElse: () =>
+            BluetoothDeviceEntity(id: '', name: '', rssi: 0, serviceUuids: []),
+      );
+      if (healthDevice.id.isNotEmpty && _healthDataTimer == null) {
+        debugPrint(
+          "Watchdog: Health device connected but monitoring stopped. Restarting...",
+        );
+        startHealthMonitoring();
+      }
+    });
+  }
 
   Future<void> autoReconnectFromSettings() async {
     try {
@@ -150,6 +199,10 @@ class BluetoothViewModel extends ChangeNotifier {
       if (settings.photoDeviceId != null &&
           settings.photoDeviceId!.isNotEmpty) {
         ids.add(settings.photoDeviceId!);
+      }
+      if (settings.healthDeviceId != null &&
+          settings.healthDeviceId!.isNotEmpty) {
+        ids.add(settings.healthDeviceId!);
       }
       if (ids.isEmpty) {
         return;
@@ -298,6 +351,38 @@ class BluetoothViewModel extends ChangeNotifier {
         // This now returns detailed service/characteristic info for debugging
         _connectedDeviceServices = await repository.discoverServices(deviceId);
 
+        // Assign roles based on device name as specified by user
+        final name = newDevice.name.toUpperCase();
+
+        if (name == "OMI") {
+          debugPrint("OMI device connected. Assigning Audio role.");
+          // If we have an existing audio source (maybe OMI Glasses), replace it
+          if (_audioDeviceId != deviceId) {
+            await stopAudio();
+          }
+          await setAudioSource(deviceId);
+        } else if (name == "OMI GLASSES") {
+          debugPrint("OMI Glasses connected. Assigning Photo role.");
+          await setPhotoSource(deviceId);
+
+          // If no OMI device is providing audio, OMI Glasses acts as backup
+          final hasOmiAudio = _connectedDevices.any(
+            (d) => d.name.toUpperCase() == "OMI",
+          );
+          if (!hasOmiAudio && _audioDeviceId == null) {
+            debugPrint(
+              "No OMI audio device found. OMI Glasses acting as backup.",
+            );
+            await setAudioSource(deviceId);
+          }
+        } else if (name.contains("Y25") ||
+            name.contains("LEFUN") ||
+            name.contains("WATCH")) {
+          debugPrint("Y25 Health device connected. Assigning Health role.");
+          startHealthMonitoring();
+          triggerY25Init();
+        }
+
         // Start monitoring battery automatically
         try {
           startBatteryListener();
@@ -305,76 +390,8 @@ class BluetoothViewModel extends ChangeNotifier {
           debugPrint("Battery service not found or error: $e");
         }
 
-        // Start monitoring heart rate automatically (if supported)
-        try {
-          startHeartRateListener();
-        } catch (e) {
-          debugPrint("Heart Rate service not found or error: $e");
-        }
-
-        // Start monitoring other health data (if Y25 or generic)
-        try {
-          startHealthMonitoring();
-        } catch (e) {
-          debugPrint("Health monitoring error: $e");
-        }
-
         // Start debug listener for raw data
         startDebugListener(deviceId);
-
-        // Auto-init Y25 / Lefun Band
-        if (_selectedDevice != null &&
-            (_selectedDevice!.name.toUpperCase().contains("Y25") ||
-                _selectedDevice!.name.toUpperCase().contains("LEFUN") ||
-                _selectedDevice!.name.toUpperCase().contains("WATCH"))) {
-          debugPrint(
-            "Auto-detect: Y25/Lefun device found. Triggering init sequence.",
-          );
-          triggerY25Init();
-        }
-
-        // Auto-start audio if not set (Check if OMI device first?)
-        if (_audioDeviceId == null) {
-          try {
-            final hasOmiService = await repository.hasService(
-              deviceId,
-              BluetoothConstants.serviceUuid,
-            );
-            if (hasOmiService) {
-              await setAudioSource(deviceId);
-            } else {
-              debugPrint(
-                "Device $deviceId does not have OMI Service. Skipping Audio setup.",
-              );
-            }
-          } catch (e) {
-            debugPrint(
-              "Audio source setup failed (might not be OMI device): $e",
-            );
-          }
-        }
-
-        // Auto-assign photo source if capable and not set yet
-        if (_photoDeviceId == null) {
-          try {
-            final hasOmiService = await repository.hasService(
-              deviceId,
-              BluetoothConstants.serviceUuid,
-            );
-            if (hasOmiService) {
-              final canPhoto = await repository.isPhotoCapable(deviceId);
-              if (canPhoto) {
-                await setPhotoSource(deviceId);
-              }
-            } else {
-              debugPrint(
-                "Device $deviceId does not have OMI Service. Skipping Photo setup.",
-              );
-            }
-          } catch (e) {
-            debugPrint("Photo source check failed: $e");
-          }
-        }
       } catch (e) {
         debugPrint("Error discovering services: $e");
         _connectedDeviceServices = ["Error discovering services: $e"];
@@ -416,6 +433,7 @@ class BluetoothViewModel extends ChangeNotifier {
     final targetId = deviceId ?? _selectedDevice?.id;
 
     if (targetId != null) {
+      final settings = await settingsRepository.load();
       // Remove from list
       _connectedDevices.removeWhere((d) => d.id == targetId);
 
@@ -431,11 +449,32 @@ class BluetoothViewModel extends ChangeNotifier {
       if (_audioDeviceId == targetId) {
         await stopAudio();
         _audioDeviceId = null;
+
+        // If "OMI" disconnected, check if we can fallback to "OMI GLASSES"
+        final omiGlasses = _connectedDevices.firstWhere(
+          (d) => d.name.toUpperCase() == "OMI GLASSES",
+          orElse: () => BluetoothDeviceEntity(
+            id: '',
+            name: '',
+            rssi: 0,
+            serviceUuids: [],
+          ),
+        );
+        if (omiGlasses.id.isNotEmpty) {
+          debugPrint(
+            "Fallback: OMI disconnected, assigning audio to OMI GLASSES.",
+          );
+          await setAudioSource(omiGlasses.id);
+        }
       }
       if (_photoDeviceId == targetId) {
         _photoTimer?.cancel();
         _photoTimer = null;
         _photoDeviceId = null;
+      }
+      if (settings.healthDeviceId == targetId) {
+        _healthDataTimer?.cancel();
+        _healthDataTimer = null;
       }
 
       notifyListeners();
@@ -669,6 +708,117 @@ class BluetoothViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> _initAudioWs() async {
+    if (_audioWsChannel != null) return;
+
+    try {
+      final settings = await settingsRepository.load();
+      // Use setting URL or default if not set
+      String url = settings.localAudioUrl ?? "";
+
+      // Ensure ws protocol and proper endpoint
+      if (url.isEmpty) {
+        url = "ws://192.168.1.15:8989/ws/audio";
+      } else {
+        if (url.startsWith('http://')) {
+          url = url.replaceFirst('http://', 'ws://');
+        } else if (url.startsWith('https://')) {
+          url = url.replaceFirst('https://', 'wss://');
+        }
+
+        if (!url.startsWith('ws')) {
+          url = 'ws://$url';
+        }
+
+        if (!url.contains('/ws/audio')) {
+          final separator = url.endsWith('/') ? '' : '/';
+          url = '$url${separator}ws/audio';
+        }
+      }
+
+      debugPrint("Connecting to Audio WebSocket: $url");
+      _audioWsChannel = IOWebSocketChannel.connect(Uri.parse(url));
+
+      _currentWsSessionId = "session_${DateTime.now().millisecondsSinceEpoch}";
+
+      _audioWsChannel!.stream.listen(
+        (message) {
+          try {
+            final data = jsonDecode(message);
+            if (data['type'] == 'ready') {
+              debugPrint("WebSocket Server Ready. Sending config...");
+              _sendWsConfig();
+            } else if (data['type'] == 'final_result') {
+              debugPrint(
+                "Transcription Received: ${data['analysis']['transcription']}",
+              );
+              // Handle real-time result
+              final summary = data['analysis']['summary'] ?? '';
+              if (summary.isNotEmpty) {
+                _statusMessage = "Resumen (WS): $summary";
+                notifyListeners();
+              }
+            }
+          } catch (e) {
+            debugPrint("Error parsing WS message: $e");
+          }
+        },
+        onError: (e) {
+          debugPrint("WebSocket Stream Error: $e");
+          _isWsReady = false;
+          _audioWsChannel = null;
+          // Reconnect if still enabled
+          if (_isAudioEnabled) {
+            Future.delayed(const Duration(seconds: 5), _initAudioWs);
+          }
+        },
+        onDone: () {
+          debugPrint("WebSocket Connection Closed");
+          _isWsReady = false;
+          _audioWsChannel = null;
+          // Reconnect if still enabled
+          if (_isAudioEnabled) {
+            Future.delayed(const Duration(seconds: 2), _initAudioWs);
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint("Failed to connect to Audio WebSocket: $e");
+      _isWsReady = false;
+      _audioWsChannel = null;
+    }
+  }
+
+  void _sendWsConfig() {
+    if (_audioWsChannel == null || _currentWsSessionId == null) return;
+
+    final config = {
+      'type': 'config',
+      'session_id': _currentWsSessionId,
+      'sample_rate': 16000,
+      'encoding': 'pcm16',
+      'language': 'es',
+    };
+    _audioWsChannel!.sink.add(jsonEncode(config));
+    _isWsReady = true;
+    debugPrint("WebSocket Config Sent");
+  }
+
+  void _sendAudioToWs(Uint8List data) {
+    if (_audioWsChannel != null && _isWsReady) {
+      _audioWsChannel!.sink.add(data);
+    }
+  }
+
+  void _finishWsSegment() {
+    if (_audioWsChannel != null && _isWsReady) {
+      debugPrint("Finishing WS Segment to get results...");
+      _audioWsChannel!.sink.add(jsonEncode({'type': 'end_of_stream'}));
+      // The server will send final_result and likely close the connection.
+      // Our onDone handler will automatically reconnect and start a new session.
+    }
+  }
+
   Future<void> startAudio() async {
     // Determine target device: _audioDeviceId takes precedence, then _selectedDevice
     String? targetId = _audioDeviceId;
@@ -688,15 +838,8 @@ class BluetoothViewModel extends ChangeNotifier {
       return;
     }
 
-    // Request microphone permission (required for playAndRecord session)
-    // final status = await Permission.microphone.request();
-    // if (status != PermissionStatus.granted) {
-    //   _errorMessage = "Microphone permission required for audio";
-    //   notifyListeners();
-    //   return;
-    // }
-
     await _initAudio();
+    await _initAudioWs();
 
     if (_audioPlayer == null || !_audioPlayer!.isOpen()) {
       _errorMessage = "Audio player not initialized";
@@ -725,9 +868,10 @@ class BluetoothViewModel extends ChangeNotifier {
             (data) {
               if (_audioPlayer != null && _audioPlayer!.isPlaying) {
                 // feed the player
-                // debugPrint("Feeding ${data.length} bytes to audio player");
                 _audioPlayer!.uint8ListSink!.add(data);
               }
+              // Send to Real-time WebSocket
+              _sendAudioToWs(data);
               _processAudioForSummary(data);
             },
             onError: (e) {
@@ -779,6 +923,14 @@ class BluetoothViewModel extends ChangeNotifier {
 
       if (_audioPlayer != null && _audioPlayer!.isPlaying) {
         await _audioPlayer!.stopPlayer();
+      }
+
+      if (_audioWsChannel != null) {
+        debugPrint("Closing WebSocket...");
+        _audioWsChannel!.sink.add(jsonEncode({'type': 'end_of_stream'}));
+        _audioWsChannel!.sink.close(status.goingAway);
+        _audioWsChannel = null;
+        _isWsReady = false;
       }
 
       if (_selectedDevice != null) {
@@ -975,6 +1127,8 @@ class BluetoothViewModel extends ChangeNotifier {
     try {
       final s = await settingsRepository.load();
       interval = Duration(seconds: s.photoIntervalSeconds);
+      // Save to settings
+      await settingsRepository.save(s.copyWith(photoDeviceId: deviceId));
     } catch (_) {}
     // Start listening to images from the photo device
     startImageListenerFor(deviceId);
@@ -990,7 +1144,26 @@ class BluetoothViewModel extends ChangeNotifier {
 
   Future<void> setAudioSource(String deviceId) async {
     await startAudioFrom(deviceId);
+    try {
+      final s = await settingsRepository.load();
+      await settingsRepository.save(s.copyWith(audioDeviceId: deviceId));
+    } catch (_) {}
     _statusMessage = "Audio source set";
+    notifyListeners();
+  }
+
+  Future<void> setHealthSource(String deviceId) async {
+    _selectedDevice = _connectedDevices.firstWhere(
+      (d) => d.id == deviceId,
+      orElse: () => _selectedDevice!,
+    );
+    startHealthMonitoring();
+    triggerY25Init();
+    try {
+      final s = await settingsRepository.load();
+      await settingsRepository.save(s.copyWith(healthDeviceId: deviceId));
+    } catch (_) {}
+    _statusMessage = "Health source set (Y25)";
     notifyListeners();
   }
 
@@ -1338,6 +1511,10 @@ class BluetoothViewModel extends ChangeNotifier {
   Future<void> _summarizeConversation() async {
     _statusMessage = "Iniciando resumen de audio...";
     notifyListeners();
+
+    // If we have a persistent WebSocket, finish the segment to get results
+    _finishWsSegment();
+
     try {
       final settings = await settingsRepository.load();
       final useLocal =

@@ -4,6 +4,7 @@ class AppSettings extends Equatable {
   final String? geminiApiKey;
   final String? audioDeviceId;
   final String? photoDeviceId;
+  final String? healthDeviceId;
   final int photoIntervalSeconds;
   final bool useLocalModels;
   final String? localAudioUrl;
@@ -13,6 +14,7 @@ class AppSettings extends Equatable {
     this.geminiApiKey,
     this.audioDeviceId,
     this.photoDeviceId,
+    this.healthDeviceId,
     this.photoIntervalSeconds = 60,
     this.useLocalModels = false,
     this.localAudioUrl,
@@ -23,6 +25,7 @@ class AppSettings extends Equatable {
     String? geminiApiKey,
     String? audioDeviceId,
     String? photoDeviceId,
+    String? healthDeviceId,
     int? photoIntervalSeconds,
     bool? useLocalModels,
     String? localAudioUrl,
@@ -32,6 +35,7 @@ class AppSettings extends Equatable {
       geminiApiKey: geminiApiKey ?? this.geminiApiKey,
       audioDeviceId: audioDeviceId ?? this.audioDeviceId,
       photoDeviceId: photoDeviceId ?? this.photoDeviceId,
+      healthDeviceId: healthDeviceId ?? this.healthDeviceId,
       photoIntervalSeconds: photoIntervalSeconds ?? this.photoIntervalSeconds,
       useLocalModels: useLocalModels ?? this.useLocalModels,
       localAudioUrl: localAudioUrl ?? this.localAudioUrl,
@@ -44,6 +48,7 @@ class AppSettings extends Equatable {
     geminiApiKey,
     audioDeviceId,
     photoDeviceId,
+    healthDeviceId,
     photoIntervalSeconds,
     useLocalModels,
     localAudioUrl,
