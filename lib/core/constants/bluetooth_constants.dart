@@ -14,6 +14,10 @@ class BluetoothConstants {
   static const String batteryServiceUuid = "180f";
   static const String batteryLevelUuid = "2a19";
 
+  // Heart Rate UUIDs
+  static const String heartRateServiceUuid = "180d";
+  static const String heartRateMeasurementUuid = "2a37";
+
   // Wi-Fi UUIDs (NOT SUPPORTED IN FIRMWARE v2.1.1)
   // Kept for reference but not available on OMI Glasses
   static const String wifiServiceUuid = "30295780-4301-eabd-2904-2849adfeae43";

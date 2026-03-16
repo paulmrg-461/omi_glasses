@@ -12,12 +12,17 @@ import '../../features/vision/data/repositories/gemini_vision_repository.dart';
 import '../../features/audio/domain/repositories/audio_repository.dart';
 import '../../features/audio/data/repositories/gemini_audio_repository.dart';
 import '../../features/memory/domain/repositories/memory_repository.dart';
-import '../../features/memory/data/datasources/memory_local_data_source.dart';
+import '../../features/memory/data/datasources/memory_remote_data_source.dart';
 import '../../features/memory/data/repositories/memory_repository_impl.dart';
-import '../../features/audio/domain/repositories/audio_repository.dart' as audiodomain;
+import '../../features/audio/domain/repositories/audio_repository.dart'
+    as audiodomain;
 import '../../features/photo/domain/repositories/photo_repository.dart';
 import '../../features/photo/data/datasources/photo_local_data_source.dart';
 import '../../features/photo/data/repositories/photo_repository_impl.dart';
+import '../../features/chat/domain/repositories/chat_repository.dart';
+import '../../features/chat/data/repositories/gemini_chat_repository.dart';
+import '../../features/chat/presentation/viewmodels/chat_viewmodel.dart';
+import 'package:http/http.dart' as http;
 
 final sl = GetIt.instance;
 
@@ -64,13 +69,13 @@ Future<void> init() async {
   );
 
   // Memory
-  sl.registerLazySingleton<MemoryLocalDataSource>(
-    () => MemoryLocalDataSourceImpl(),
+  sl.registerLazySingleton<http.Client>(() => http.Client());
+  sl.registerLazySingleton<MemoryRemoteDataSource>(
+    () => MemoryRemoteDataSourceImpl(client: sl()),
   );
   sl.registerLazySingleton<MemoryRepository>(
-    () => MemoryRepositoryImpl(local: sl()),
+    () => MemoryRepositoryImpl(remote: sl()),
   );
-  await sl<MemoryLocalDataSource>().init();
   // Photos
   sl.registerLazySingleton<PhotoLocalDataSource>(
     () => PhotoLocalDataSourceImpl(),
@@ -79,4 +84,14 @@ Future<void> init() async {
     () => PhotoRepositoryImpl(local: sl()),
   );
   await sl<PhotoLocalDataSource>().init();
+
+  // Chat
+  sl.registerLazySingleton<ChatRepository>(() => GeminiChatRepository());
+  sl.registerFactory(
+    () => ChatViewModel(
+      chatRepository: sl(),
+      memoryRepository: sl(),
+      settingsRepository: sl(),
+    ),
+  );
 }

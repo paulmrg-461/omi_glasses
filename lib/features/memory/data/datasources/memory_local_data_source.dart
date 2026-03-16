@@ -32,11 +32,13 @@ class MemoryLocalDataSourceImpl implements MemoryLocalDataSource {
     }
     final values = _box!.values.toList();
     values.sort((a, b) {
-      final ta = DateTime.parse(a['timestamp'] as String);
-      final tb = DateTime.parse(b['timestamp'] as String);
+      final ta = DateTime.parse(a['created_at'] as String);
+      final tb = DateTime.parse(b['created_at'] as String);
       return tb.compareTo(ta);
     });
     final sliced = limit != null ? values.take(limit).toList() : values;
-    return sliced.map((m) => MemoryEntry.fromMap(m)).toList();
+    return sliced
+        .map((m) => MemoryEntry.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
   }
 }

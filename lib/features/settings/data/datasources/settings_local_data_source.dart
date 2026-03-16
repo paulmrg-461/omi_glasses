@@ -10,21 +10,36 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
   static const String kGeminiKey = 'gemini_api_key';
   static const String kAudioDeviceId = 'audio_device_id';
   static const String kPhotoDeviceId = 'photo_device_id';
+  static const String kHealthDeviceId = 'health_device_id';
   static const String kPhotoInterval = 'photo_interval_seconds';
+  static const String kUseLocalModels = 'use_local_models';
+  static const String kLocalAudioUrl = 'local_audio_url';
+  static const String kLocalVisionUrl = 'local_vision_url';
+
   @override
   Future<AppSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
     final key = prefs.getString(kGeminiKey);
     final audioId = prefs.getString(kAudioDeviceId);
     final photoId = prefs.getString(kPhotoDeviceId);
+    final healthId = prefs.getString(kHealthDeviceId);
     final interval = prefs.getInt(kPhotoInterval) ?? 60;
+    final useLocal = prefs.getBool(kUseLocalModels) ?? false;
+    final localAudio = prefs.getString(kLocalAudioUrl);
+    final localVision = prefs.getString(kLocalVisionUrl);
+
     return AppSettings(
       geminiApiKey: key,
       audioDeviceId: audioId,
       photoDeviceId: photoId,
+      healthDeviceId: healthId,
       photoIntervalSeconds: interval,
+      useLocalModels: useLocal,
+      localAudioUrl: localAudio,
+      localVisionUrl: localVision,
     );
   }
+
   @override
   Future<void> save(AppSettings settings) async {
     final prefs = await SharedPreferences.getInstance();
@@ -37,6 +52,17 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
     if (settings.photoDeviceId != null) {
       await prefs.setString(kPhotoDeviceId, settings.photoDeviceId!);
     }
+    if (settings.healthDeviceId != null) {
+      await prefs.setString(kHealthDeviceId, settings.healthDeviceId!);
+    }
     await prefs.setInt(kPhotoInterval, settings.photoIntervalSeconds);
+    await prefs.setBool(kUseLocalModels, settings.useLocalModels);
+
+    if (settings.localAudioUrl != null) {
+      await prefs.setString(kLocalAudioUrl, settings.localAudioUrl!);
+    }
+    if (settings.localVisionUrl != null) {
+      await prefs.setString(kLocalVisionUrl, settings.localVisionUrl!);
+    }
   }
 }

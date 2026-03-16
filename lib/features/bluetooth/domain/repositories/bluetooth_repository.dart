@@ -26,7 +26,41 @@ abstract class BluetoothRepository {
   Future<void> stopAudioStream(String deviceId);
 
   // Battery features
+  /// Monitors the battery level of the connected device.
+  /// Returns a stream of battery level percentage (0-100).
   Stream<int> monitorBatteryLevel(String deviceId);
+
+  /// Monitors the heart rate of the connected device (if supported).
+  /// Returns a stream of heart rate in BPM.
+  Stream<int> monitorHeartRate(String deviceId);
+
+  /// Monitors ALL services and characteristics for debugging purposes.
+  /// Returns a stream of log strings with UUIDs and data.
+  Stream<String> monitorAllServices(String deviceId);
+
+  /// Writes bytes to a characteristic.
+  Future<void> writeCharacteristicBytes(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  );
+
+  /// Writes to ALL writable characteristics.
+  Future<List<String>> writeToAllWritable(
+    String deviceId,
+    List<int> value,
+  );
+
+  /// Reads bytes from a characteristic.
+  Future<List<int>> readCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+  );
+
+  /// Checks if the device has a specific service UUID.
+  Future<bool> hasService(String deviceId, String serviceUuid);
 
   // Bluetooth State
   Future<bool> get isBluetoothEnabled;
